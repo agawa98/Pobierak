@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pobierak</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <section class="terminal-background">
+    <div class="background-terminal-body" id="terminalLogs"></div>
+  </section>
+
+  <main class="page">
+    <section class="workspace" id="workspace">
+
+      <section class="card">
+        <h1>Pobierak</h1>
+
+        <form class="download-form" id="downloadForm">
+          <label for="url">Link do filmu</label>
+          <input 
+            type="url" 
+            id="url" 
+            name="url" 
+            placeholder="https://..." 
+            required
+          >
+
+          <p class="field-title">Co chcesz pobrać?</p>
+
+          <div class="choice-row">
+            <label class="choice">
+              <input type="radio" name="type" value="audio" checked>
+              <span>Tylko audio</span>
+            </label>
+
+            <label class="choice">
+              <input type="radio" name="type" value="video">
+              <span>Film z dźwiękiem</span>
+            </label>
+
+            <label class="choice">
+              <input type="radio" name="type" value="separate">
+              <span>Dźwięk i obraz osobno</span>
+            </label>
+          </div>
+
+          <div class="select-row audio-mode" id="optionsRow">
+
+            <div class="select-box">
+              <label id="leftOptionLabel" for="bitrate">Bitrate</label>
+
+              <div class="control-area">
+                <div class="slider-box option-control audio-control" id="bitrateBox">
+                  <input 
+                    type="range" 
+                    id="bitrate" 
+                    name="bitrate" 
+                    min="0" 
+                    max="6" 
+                    step="1" 
+                    value="6"
+                  >
+
+                  <div class="slider-labels">
+                    <span>16</span>
+                    <span>32</span>
+                    <span>64</span>
+                    <span>128</span>
+                    <span>256</span>
+                    <span>320</span>
+                    <span>best</span>
+                  </div>
+                </div>
+
+                <select id="resolution" name="resolution" class="option-control video-control is-hidden">
+                  <option value="144">144p</option>
+                  <option value="360">360p</option>
+                  <option value="480">480p</option>
+                  <option value="720">720p</option>
+                  <option value="1080">1080p</option>
+                  <option value="best">Best</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="select-box">
+              <label id="formatLabel" for="format">Format audio</label>
+
+              <select id="format" name="format">
+                <option value="mp3">MP3</option>
+                <option value="wav">WAV</option>
+                <option value="m4a">M4A</option>
+                <option value="flac">FLAC</option>
+              </select>
+            </div>
+
+          </div>
+
+          <button type="submit" id="downloadButton">
+            <span class="button-loader hidden"></span>
+            <span class="button-text">Pobierz</span>
+          </button>
+        </form>
+      </section>
+
+      <aside class="experimental-panel" id="experimentalPanel">
+        <button class="experimental-tab" id="experimentalToggle" type="button" aria-expanded="false">
+          EXPERIMENTAL
+        </button>
+
+        <section class="experimental-content">
+          <div class="experimental-grid">
+
+            <div class="knob-row">
+              <div class="knob-control">
+                <label for="bitcrushKnob">Bitcrush</label>
+
+                <div class="knob-dial" id="bitcrushDial">
+                  <input 
+                    id="bitcrushKnob" 
+                    name="bitcrush" 
+                    type="range" 
+                    min="0" 
+                    max="15" 
+                    step="1" 
+                    value="0"
+                  >
+                  <span id="bitcrushValue">off</span>
+                </div>
+              </div>
+
+              <div class="knob-control">
+                <label for="sampleRateKnob">Sample rate</label>
+
+                <div class="knob-dial" id="sampleRateDial">
+                    <input 
+                        id="sampleRateKnob" 
+                        name="sampleRate" 
+                        type="range" 
+                        min="0" 
+                        max="9" 
+                        step="1" 
+                        value="9"
+                    >
+                  <span id="sampleRateValue">best</span>
+                </div>
+              </div>
+            </div>
+
+            <label class="channel-switch">
+              <span>Mono</span>
+              <input id="channelsSwitch" name="channels" type="checkbox" checked>
+              <div class="switch-track">
+                <div class="switch-thumb"></div>
+              </div>
+              <span>Stereo</span>
+            </label>
+
+            <label class="checkbox-row">
+              <input id="normalize" name="normalize" type="checkbox">
+              <span>Normalizuj głośność</span>
+            </label>
+
+            <div class="trim-block">
+              <label>Przytnij</label>
+
+              <div class="trim-row">
+                <input id="trimStart" name="trimStart" type="text" placeholder="start">
+                <input id="trimEnd" name="trimEnd" type="text" placeholder="koniec">
+              </div>
+
+              <p class="validation-message" id="trimValidation"></p>
+            </div>
+
+          </div>
+        </section>
+      </aside>
+
+    </section>
+  </main>
+
+  <script src="script.js"></script>
+</body>
+</html>
