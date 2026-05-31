@@ -23,13 +23,9 @@ const allowedChannels = ["mono", "stereo"];
 
 //ustawiamy sciezki do programow
 
-// const binDir = path.join(__dirname, "bin");
-// const ytDlpPath = path.join(binDir, "yt-dlp.exe");                   ODKOMENTTUJ JESLI KORZYSTASZ LOKALNIE NA KOMPIE
-// const ffmpegPath = path.join(binDir, "ffmpeg.exe");
-
 const isWindows = process.platform === "win32";
 
-const binDir = isWindows ? path.join(__dirname, "bin") : "/usr/bin";                        //SCIEZKI NA DOCKERA
+const binDir = isWindows ? path.join(__dirname, "bin") : "/usr/bin";                        
 const ytDlpPath = isWindows ? path.join(__dirname, "bin", "yt-dlp.exe") : "yt-dlp";
 const ffmpegPath = isWindows ? path.join(__dirname, "bin", "ffmpeg.exe") : "ffmpeg";
 
@@ -49,6 +45,39 @@ if (!fs.existsSync(downloadsDir)) {
 
 app.use(express.static(path.join(__dirname, "public")));
 app.use("/downloads", express.static(downloadsDir));
+
+
+
+const logClients = [];
+
+//funkcja przsyłająca logi z ffmpega i ytdlp do frontendu aby wyswietlic je na tle
+function sendLogToClients(type, message) {
+    const safeMessage = String(message).replace(/\n/g, "\\n");
+
+    logClients.forEach((client) => {
+        client.write(`data: ${JSON.stringify({ type, message: safeMessage })}\n\n`);
+    });
+}
+
+//endpoint dla logów
+app.get("/api/logs", (req, res) => {
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+
+    res.write(`data: ${JSON.stringify({ type: "system", message: "Połączono z logami backendu." })}\n\n`);
+
+    logClients.push(res);
+
+    req.on("close", () => {
+        const index = logClients.indexOf(res);
+
+        if (index !== -1) {
+            logClients.splice(index, 1);
+        }
+    });
+});
+
 
 //funckja wywolywana w razie bledu
 function badRequest(res, message) {
@@ -146,14 +175,19 @@ function runProcess(command, args, label) {
 
         childProcess.stdout.on("data", (data) => {
             output += data.toString();
-            console.log(data.toString());
+            
+            const text = data.toString();
+            console.log(text);
+            sendLogToClients(label, text);
         });
 
         childProcess.stderr.on("data", (data) => {
-            errorOutput += data.toString();
-            console.error(data.toString());
-        });
+            const text = data.toString();
 
+            errorOutput += text;
+            console.error(text);
+            sendLogToClients(label, text);
+        });
         childProcess.on("error", (error) => {
             reject({
                 message: `Nie udało się uruchomić ${label}.`,

@@ -54,6 +54,26 @@ const sampleRateValues = [
 let currentMode = null;
 let videoDurationSeconds = null;
 
+
+const backendLogs = new EventSource("/api/logs");
+
+backendLogs.onmessage = (event) => {
+  const log = JSON.parse(event.data);
+
+  const lines = log.message
+    .split("\\n")
+    .map(line => line.trim())
+    .filter(line => line !== "");
+
+  lines.forEach(line => {
+    addLog(log.type, line);
+  });
+};
+
+backendLogs.onerror = () => {
+  addLog("error", "Utracono połączenie z logami backendu.");
+};
+
 function trimLogs() {
   while (terminalLogs.children.length > 42) {
     terminalLogs.removeChild(terminalLogs.firstElementChild);
@@ -66,6 +86,8 @@ function addLog(type, message) {
 
   terminalLogs.appendChild(line);
   trimLogs();
+
+  terminalLogs.scrollTop = terminalLogs.scrollHeight;
 }
 
 function fillFormatSelect(formats) {

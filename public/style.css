@@ -47,6 +47,43 @@ body {
   color: rgba(167, 139, 250, 0.7);
 }
 
+.terminal-body {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+
+  overflow-y: auto;
+  overflow-x: hidden;
+
+  padding: 18px;
+  box-sizing: border-box;
+
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 13px;
+  line-height: 1.6;
+
+  pointer-events: none;
+  z-index: 0;
+
+  scrollbar-width: none;
+}
+
+.terminal-body::-webkit-scrollbar {
+  display: none;
+}
+
+#terminalLogs {
+  overflow-y: auto;
+  overflow-x: hidden;
+  max-height: 100vh;
+  scrollbar-width: none;
+}
+
+#terminalLogs::-webkit-scrollbar {
+  display: none;
+}
+
 .page {
   position: relative;
   z-index: 1;
