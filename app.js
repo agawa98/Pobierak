@@ -162,6 +162,156 @@ function isActiveJobFile(fileName, jobs = activeJobs) {
     return false;
 }
 
+// blad rzucany przez runProcess, gdy zadanie zostalo anulowane. endpoint nie wysyla po nim odpowiedzi
+function cancelledError() {
+    return { cancelled: true, message: "Zadanie anulowane.", error: "" };
+}
+
+// rzuca blad anulowania, jesli zadanie zostalo anulowane (sprawdzane przed wyslaniem odpowiedzi)
+function throwIfCancelled(job) {
+    if (job && job.cancelled) {
+        throw cancelledError();
+    }
+}
+
+// opcje spawn dla yt-dlp i ffmpeg. poza Windowsem proces startuje jako lider wlasnej grupy,
+// zeby anulowanie moglo wyslac sygnal calej grupie (yt-dlp sam uruchamia ffmpeg)
+function buildSpawnOptions(platform = process.platform) {
+    if (platform === "win32") {
+        return {};
+    }
+
+    return { detached: true };
+}
+
+// ile czekamy miedzy SIGTERM a SIGKILL (macOS i Linux)
+const killGraceMs = 2000;
+
+// zabija proces razem z procesami, ktore sam uruchomil.
+// Windows: taskkill /T /F (cale drzewo - samo child.kill() zostawiloby ffmpeg uruchomiony przez yt-dlp).
+// macOS i Linux: SIGTERM do grupy procesu, a po chwili SIGKILL, jesli cos jeszcze zyje.
+// options sluzy tylko testom (inny system, atrapy spawn i process.kill)
+function killProcessTree(child, options = {}) {
+    const platform = options.platform || process.platform;
+    const spawnImpl = options.spawnImpl || spawn;
+    const killImpl = options.killImpl || ((pid, signal) => process.kill(pid, signal));
+    const graceMs = options.graceMs === undefined ? killGraceMs : options.graceMs;
+    const pid = child ? child.pid : undefined;
+
+    if (!pid) {      // proces nie wystartowal (np. brak programu)
+        return;
+    }
+
+    if (platform === "win32") {
+        // gdyby nie dalo sie uruchomic taskkill, zabijamy chociaz sam proces
+        const killChildOnly = () => {
+            try {
+                child.kill();
+            } catch (error) {
+                console.log("Nie udało się zabić procesu:", error.message);
+            }
+        };
+
+        try {
+            const killer = spawnImpl("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore", windowsHide: true });
+
+            killer.on("error", killChildOnly);
+        } catch {
+            killChildOnly();
+        }
+
+        return;
+    }
+
+    // ujemny pid = cala grupa procesow. blad oznacza, ze grupy juz nie ma
+    const sendToGroup = (signal) => {
+        try {
+            killImpl(-pid, signal);
+            return true;
+        } catch {
+            return false;
+        }
+    };
+
+    if (!sendToGroup("SIGTERM")) {
+        return;
+    }
+
+    setTimeout(() => {
+        if (sendToGroup(0)) {       // sygnal 0 niczego nie wysyla, tylko sprawdza, czy w grupie cos jeszcze zyje
+            sendToGroup("SIGKILL");
+        }
+    }, graceMs).unref();
+}
+
+// anuluje zadanie: ustawia znacznik (kolejny program juz nie wystartuje) i zabija aktualnie dzialajacy proces.
+// pliki zadania usuwa endpoint, gdy proces sie zakonczy
+function cancelJob(job) {
+    if (job.cancelled) {
+        return;
+    }
+
+    job.cancelled = true;
+    console.log(`Zadanie ${job.jobId} anulowane — strona zamknęła połączenie.`);
+
+    if (job.process) {
+        killProcessTree(job.process);
+    }
+}
+
+// ile razy i co ile milisekund ponawiamy usuwanie plikow anulowanego zadania (na Windowsie plik bywa chwile zablokowany)
+const removeJobFilesAttempts = 5;
+const removeJobFilesDelayMs = 400;
+
+// usuwa z folderu wszystkie pliki z "[<jobId>]" w nazwie (.part, oryginaly, tmp-, gotowe wyniki).
+// zwraca nazwy plikow, ktorych nie udalo sie usunac - te zabierze zwykle sprzatanie po 30 minutach.
+// folder i options podaja tylko testy
+async function removeJobFiles(jobId, dir = downloadsDir, options = {}) {
+    const attempts = options.attempts || removeJobFilesAttempts;
+    const delayMs = options.delayMs === undefined ? removeJobFilesDelayMs : options.delayMs;
+
+    let leftFiles = [];
+
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+        let files;
+
+        try {
+            files = fs.readdirSync(dir);
+        } catch (error) {
+            console.log("Nie udalo sie odczytac folderu pobierania:", error.message);
+            return [];
+        }
+
+        leftFiles = [];
+
+        for (const fileName of files) {
+            if (!fileName.includes(`[${jobId}]`)) {
+                continue;
+            }
+
+            try {
+                fs.unlinkSync(path.join(dir, fileName));
+            } catch (error) {
+                if (error.code !== "ENOENT") {
+                    leftFiles.push(fileName);
+                }
+            }
+        }
+
+        if (leftFiles.length === 0) {
+            return [];
+        }
+
+        if (attempt < attempts) {
+            await new Promise(resolve => setTimeout(resolve, delayMs));
+        }
+    }
+
+    console.log(`Nie udalo sie usunac plikow anulowanego zadania ${jobId} (usunie je zwykle sprzatanie):`, leftFiles.join(", "));
+
+    return leftFiles;
+}
+
 //funkcja usuwajaca stare pliki z folderu downloads. pliki zadan w toku zostaja, nawet gdy sa starsze niz limit
 // folder i zbior zadan mozna podac tylko po to, zeby testy sprzataly folder tymczasowy; program zawsze sprzata downloads
 function cleanupOldDownloads(dir = downloadsDir, jobs = activeJobs) {
@@ -292,11 +442,34 @@ function buildMissingProgramMessage(label, command) {
 }
 
 // ta funkcja uruchamia komendy w ffmpeg albo ytdlp. command - sciezka do programu, args - argumenty, label - jak ma widniec w logach
-function runProcess(command, args, label) {
+// job - obiekt zadania z activeJobs (moze go nie byc): zadanie pamieta swoj dzialajacy proces, a anulowane nie uruchamia nastepnego
+function runProcess(command, args, label, job = null) {
     return new Promise((resolve, reject) => {       // resolve sie odpala gdy sukces, reject gdy etrror
+        if (job && job.cancelled) {
+            reject(cancelledError());
+            return;
+        }
+
         console.log(`${label} ARGS:`, args);
 
-        const childProcess = spawn(command, args);
+        const childProcess = spawn(command, args, buildSpawnOptions());
+
+        if (job) {
+            job.process = childProcess;
+        }
+
+        // proces sie skonczyl: zadanie juz go nie pamieta. zwraca true, gdy zadanie zostalo w miedzyczasie anulowane
+        const finishForJob = () => {
+            if (!job) {
+                return false;
+            }
+
+            if (job.process === childProcess) {
+                job.process = null;
+            }
+
+            return job.cancelled === true;
+        };
 
         let errorOutput = "";       // tylko koncowka stderr (stderrTailLimit znakow)
         let stdoutPartialLine = "";  // niedokonczona ostatnia linia stdout (linia moze przyjsc w kilku kawalkach)
@@ -324,6 +497,11 @@ function runProcess(command, args, label) {
             sendLogToClients(label, text);
         });
         childProcess.on("error", (error) => {
+            if (finishForJob()) {
+                reject(cancelledError());
+                return;
+            }
+
             if (error.code === "ENOENT") {
                 reject({
                     message: buildMissingProgramMessage(label, command),
@@ -340,6 +518,11 @@ function runProcess(command, args, label) {
 
         childProcess.on("close", (code) => {
             console.log(`${label} CLOSE CODE:`, code);
+
+            if (finishForJob()) {
+                reject(cancelledError());
+                return;
+            }
 
             if (code !== 0) {
                 reject({
@@ -502,9 +685,9 @@ function buildTempFileName(processedFile) {
 
 // uruchamia ffmpeg, ktory pisze do pliku tymczasowego. po sukcesie usuwa oryginal i nadaje wynikowi koncowa nazwe,
 // przy bledzie ffmpeg usuwa plik tymczasowy. zwraca nazwe pliku, pod ktora lezy wynik
-async function runFfmpegAndReplace(ffmpegArgs, label, originalPath, tempPath, processedPath) {
+async function runFfmpegAndReplace(ffmpegArgs, label, originalPath, tempPath, processedPath, job = null) {
     try {
-        await runProcess(ffmpegPath, ffmpegArgs, label);
+        await runProcess(ffmpegPath, ffmpegArgs, label, job);
     } catch (error) {
         deleteTempFile(tempPath);
         throw error;
@@ -668,7 +851,8 @@ async function processDownloadedFile(options) {
         mediaType,
         format,
         bitrate,
-        dir = downloadsDir      // folder z plikami; program zawsze uzywa downloads, inny folder podaja tylko testy
+        dir = downloadsDir,     // folder z plikami; program zawsze uzywa downloads, inny folder podaja tylko testy
+        job = null              // obiekt zadania z activeJobs (anulowanie)
     } = options;
 
     if (!shouldProcessMedia(experimental, trimStartSeconds, trimEndSeconds, mediaType, format, generatedFile)) {
@@ -709,7 +893,7 @@ async function processDownloadedFile(options) {
 
         ffmpegArgs.push(tempPath);
 
-        return runFfmpegAndReplace(ffmpegArgs, "FFMPEG VIDEO ONLY", originalPath, tempPath, processedPath);
+        return runFfmpegAndReplace(ffmpegArgs, "FFMPEG VIDEO ONLY", originalPath, tempPath, processedPath, job);
     }
 
     const audioFilters = buildAudioFilters(experimental);
@@ -755,11 +939,11 @@ async function processDownloadedFile(options) {
 
     ffmpegArgs.push(tempPath);
 
-    return runFfmpegAndReplace(ffmpegArgs, "FFMPEG", originalPath, tempPath, processedPath);
+    return runFfmpegAndReplace(ffmpegArgs, "FFMPEG", originalPath, tempPath, processedPath, job);
 }
 
 //funkcja pobierająca i zwracająca plik audio - TUTAJ URUCHAMIAMY YTDLP
-async function downloadAudio(url, format, bitrate, jobId) {
+async function downloadAudio(url, format, bitrate, jobId, job = null) {
     const outputTemplate = buildOutputTemplate(jobId);
     const audioQuality = getAudioQuality(bitrate);
 
@@ -772,7 +956,7 @@ async function downloadAudio(url, format, bitrate, jobId) {
         url
     ];
 
-    const result = await runProcess(ytDlpPath, ytDlpArgs, "YT-DLP AUDIO");     // tutaj uruchamiamy yt-dlp ktory sciaga plik z yt
+    const result = await runProcess(ytDlpPath, ytDlpArgs, "YT-DLP AUDIO", job);     // tutaj uruchamiamy yt-dlp ktory sciaga plik z yt
 
     if (result.skippedByFilter) {
         throw liveStreamError();
@@ -791,7 +975,7 @@ async function downloadAudio(url, format, bitrate, jobId) {
 }
 
 //funkcja pobierajaca wideo z audio
-async function downloadVideo(url, resolution, format, jobId) {
+async function downloadVideo(url, resolution, format, jobId, job = null) {
     const outputTemplate = buildOutputTemplate(jobId);
     const videoFormat = buildVideoFormat(resolution, format);
     const mergeFormat = getYtDlpMergeFormat(format);
@@ -804,7 +988,7 @@ async function downloadVideo(url, resolution, format, jobId) {
         url
     ];
 
-    const result = await runProcess(ytDlpPath, ytDlpArgs, "YT-DLP VIDEO");     // tutaj uruchamiamy yt-dlp ktory sciaga plik z yt
+    const result = await runProcess(ytDlpPath, ytDlpArgs, "YT-DLP VIDEO", job);     // tutaj uruchamiamy yt-dlp ktory sciaga plik z yt
 
     if (result.skippedByFilter) {
         throw liveStreamError();
@@ -823,7 +1007,7 @@ async function downloadVideo(url, resolution, format, jobId) {
 }
 
 //funkcja pobierajaca wideo i audio oddzielnie
-async function downloadSeparate(url, resolution, format, jobId) {
+async function downloadSeparate(url, resolution, format, jobId, job = null) {
     const videoOutputTemplate = buildOutputTemplate(jobId, "video");
     const audioOutputTemplate = buildOutputTemplate(jobId, "audio");
 
@@ -845,13 +1029,13 @@ async function downloadSeparate(url, resolution, format, jobId) {
         url
     ];
 
-    const videoResult = await runProcess(ytDlpPath, videoArgs, "YT-DLP VIDEO ONLY");        //odpalamy dwa razy, raz dla wideo raz dla audio
+    const videoResult = await runProcess(ytDlpPath, videoArgs, "YT-DLP VIDEO ONLY", job);        //odpalamy dwa razy, raz dla wideo raz dla audio
 
     if (videoResult.skippedByFilter) {      // transmisja: drugiego wywolania nie ma po co uruchamiac
         throw liveStreamError();
     }
 
-    const audioResult = await runProcess(ytDlpPath, audioArgs, "YT-DLP AUDIO ONLY");
+    const audioResult = await runProcess(ytDlpPath, audioArgs, "YT-DLP AUDIO ONLY", job);
 
     if (audioResult.skippedByFilter) {
         throw liveStreamError();
@@ -1090,11 +1274,22 @@ app.post("/api/download", async (req, res) => {
 
     const jobId = getJobId();
 
-    activeJobs.set(jobId, { jobId, startedAt: Date.now() });
+    // process - aktualnie dzialajacy yt-dlp albo ffmpeg tego zadania, cancelled - znacznik anulowania
+    const job = { jobId, startedAt: Date.now(), process: null, cancelled: false };
+
+    activeJobs.set(jobId, job);
+
+    // przycisku "Anuluj" nie ma: przerwanie to zerwanie polaczenia (zamkniecie albo odswiezenie karty).
+    // "close" przychodzi tez po zwyklym wyslaniu odpowiedzi - wtedy writableEnded jest true i nic nie robimy
+    res.on("close", () => {
+        if (!res.writableEnded) {
+            cancelJob(job);
+        }
+    });
 
     try {
         if (type === "audio") {
-            const downloadedFile = await downloadAudio(url, format, bitrate, jobId);
+            const downloadedFile = await downloadAudio(url, format, bitrate, jobId, job);
 
             const finalFile = await processDownloadedFile({
                 generatedFile: downloadedFile,
@@ -1103,8 +1298,11 @@ app.post("/api/download", async (req, res) => {
                 trimEndSeconds,
                 mediaType: "audio",
                 format,
-                bitrate
+                bitrate,
+                job
             });
+
+            throwIfCancelled(job);      // anulowane zadanie nie wysyla odpowiedzi
 
             return res.json({
                 success: true,
@@ -1116,7 +1314,7 @@ app.post("/api/download", async (req, res) => {
         }
 
         if (type === "video") {
-            const downloadedFile = await downloadVideo(url, resolution, format, jobId);
+            const downloadedFile = await downloadVideo(url, resolution, format, jobId, job);
 
             const finalFile = await processDownloadedFile({
                 generatedFile: downloadedFile,
@@ -1125,8 +1323,11 @@ app.post("/api/download", async (req, res) => {
                 trimEndSeconds,
                 mediaType: "video",
                 format,
-                bitrate
+                bitrate,
+                job
             });
+
+            throwIfCancelled(job);      // anulowane zadanie nie wysyla odpowiedzi
 
             return res.json({
                 success: true,
@@ -1138,7 +1339,7 @@ app.post("/api/download", async (req, res) => {
         }
 
         if (type === "separate") {
-            const { videoFile, audioFile } = await downloadSeparate(url, resolution, format, jobId);
+            const { videoFile, audioFile } = await downloadSeparate(url, resolution, format, jobId, job);
 
             const finalVideoFile = await processDownloadedFile({
                 generatedFile: videoFile,
@@ -1147,7 +1348,8 @@ app.post("/api/download", async (req, res) => {
                 trimEndSeconds,
                 mediaType: "videoOnly",
                 format,
-                bitrate
+                bitrate,
+                job
             });
 
             const finalAudioFile = await processDownloadedFile({
@@ -1157,8 +1359,11 @@ app.post("/api/download", async (req, res) => {
                 trimEndSeconds,
                 mediaType: "audio",
                 format: "mp3",
-                bitrate: "best"
+                bitrate: "best",
+                job
             });
+
+            throwIfCancelled(job);      // anulowane zadanie nie wysyla odpowiedzi
 
             return res.json({
                 success: true,
@@ -1175,6 +1380,10 @@ app.post("/api/download", async (req, res) => {
 
         return badRequest(res, "Nieobsługiwany tryb pobierania.");
     } catch (error) {
+        if (job.cancelled) {        // polaczenie jest zerwane, nie ma komu odpowiadac
+            return;
+        }
+
         console.error(error);
 
         return res.status(500).json({
@@ -1183,6 +1392,11 @@ app.post("/api/download", async (req, res) => {
             error: error.error || error.message || String(error)
         });
     } finally {
+        // anulowane zadanie: procesy sa juz zabite, usuwamy wszystkie jego pliki
+        if (job.cancelled) {
+            await removeJobFiles(jobId);
+        }
+
         // po sukcesie i po bledzie: od teraz gotowe pliki sprzata zwykly licznik 30 minut (od zapisania pliku)
         activeJobs.delete(jobId);
     }
@@ -1330,6 +1544,10 @@ module.exports = {
     cleanupOldDownloads,
     activeJobs,
     isActiveJobFile,
+    buildSpawnOptions,
+    killProcessTree,
+    cancelJob,
+    removeJobFiles,
     fileMaxAgeMinutes,
     resolveBinary,
     buildYtDlpBaseArgs,
