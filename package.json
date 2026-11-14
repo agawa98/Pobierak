@@ -1,0 +1,24 @@
+{
+  "name": "pobierak",
+  "version": "1.0.0",
+  "description": "Lokalna strona do pobierania filmów i dźwięku przez yt-dlp, z przycinaniem i efektami audio (ffmpeg).",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js",
+    "test": "node --test",
+    "test:przegladarka": "node testy/przegladarka/uruchom.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "type": "commonjs",
+  "dependencies": {
+    "express": "^5.2.1"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.65.1"
+  }
+}

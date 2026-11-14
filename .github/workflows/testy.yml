@@ -1,0 +1,50 @@
+# Testy automatyczne na trzech systemach (zadanie G5).
+# Testy nie pobieraja niczego z internetu i nie uruchamiaja yt-dlp, wiec yt-dlp nie jest tu instalowany.
+# ffmpeg i ffprobe sa potrzebne: bez nich czesc testow jest pomijana, dlatego krok "Sprawdzenie ffmpeg"
+# zatrzymuje przebieg, gdy instalacja sie nie udala.
+name: Testy
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  testy:
+    name: Testy (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    steps:
+      - name: Pobranie kodu
+        uses: actions/checkout@v4
+
+      - name: Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: ffmpeg (Windows)
+        if: runner.os == 'Windows'
+        run: choco install ffmpeg -y --no-progress
+
+      - name: ffmpeg (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ffmpeg
+
+      - name: ffmpeg (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Sprawdzenie ffmpeg
+        shell: bash
+        run: |
+          ffmpeg -version
+          ffprobe -version
+
+      - name: Instalacja zaleznosci
+        run: npm ci
+
+      - name: Testy
+        run: npm test
