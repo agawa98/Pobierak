@@ -2,6 +2,7 @@
 // B4: oczekiwane ytDlpBaseArgs zawieraja tez --no-playlist (testy samej flagi sa w testy/argumenty-ytdlp.test.js).
 // B13e: oczekiwane ytDlpBaseArgs zawieraja tez --no-mtime (testy samej flagi sa w testy/argumenty-ytdlp.test.js).
 // B13a: oczekiwane ytDlpBaseArgs zawieraja tez --newline (testy samej flagi sa w testy/argumenty-ytdlp.test.js).
+// BUG-1b: oczekiwane ytDlpBaseArgs zawieraja tez --match-filter i --playlist-items (testy w testy/argumenty-ytdlp.test.js i testy/transmisja.test.js).
 // Nic nie pobieraja z internetu i nie uruchamiaja yt-dlp ani ffmpeg: spawn jest podmieniony na atrape.
 
 const test = require("node:test");
@@ -213,7 +214,7 @@ test("resolveBinary: program z bin nie wplywa na drugi program, ktorego w bin ni
 // ---------- buildYtDlpBaseArgs ----------
 
 test("buildYtDlpBaseArgs: ffmpeg z PATH -> bez --ffmpeg-location", () => {
-    assert.deepEqual(app.buildYtDlpBaseArgs({ command: "ffmpeg", fromPath: true }), ["--no-playlist", "--no-mtime", "--newline"]);
+    assert.deepEqual(app.buildYtDlpBaseArgs({ command: "ffmpeg", fromPath: true }), ["--no-playlist", "--no-mtime", "--newline", "--match-filter", "!is_live & !is_upcoming", "--playlist-items", "1"]);
 });
 
 test("buildYtDlpBaseArgs: ffmpeg spoza PATH -> --ffmpeg-location ze sciezka", () => {
@@ -221,7 +222,7 @@ test("buildYtDlpBaseArgs: ffmpeg spoza PATH -> --ffmpeg-location ze sciezka", ()
 
     assert.deepEqual(
         app.buildYtDlpBaseArgs({ command: ffmpegFile, fromPath: false }),
-        ["--ffmpeg-location", ffmpegFile, "--no-playlist", "--no-mtime", "--newline"]
+        ["--ffmpeg-location", ffmpegFile, "--no-playlist", "--no-mtime", "--newline", "--match-filter", "!is_live & !is_upcoming", "--playlist-items", "1"]
     );
 });
 
@@ -265,7 +266,7 @@ for (const mode of ["audio", "video", "separate"]) {
 
         assert.equal(loaded.appModule.ffmpegPath, ffmpegFile);
         assert.equal(loaded.appModule.ytDlpPath, ytDlpFile);
-        assert.deepEqual(loaded.appModule.ytDlpBaseArgs, ["--ffmpeg-location", ffmpegFile, "--no-playlist", "--no-mtime", "--newline"]);
+        assert.deepEqual(loaded.appModule.ytDlpBaseArgs, ["--ffmpeg-location", ffmpegFile, "--no-playlist", "--no-mtime", "--newline", "--match-filter", "!is_live & !is_upcoming", "--playlist-items", "1"]);
 
         const calls = await runDownload(loaded, mode);
 
@@ -284,7 +285,7 @@ for (const mode of ["audio", "video", "separate"]) {
 
         assert.equal(loaded.appModule.ffmpegPath, "ffmpeg");
         assert.equal(loaded.appModule.ytDlpPath, "yt-dlp");
-        assert.deepEqual(loaded.appModule.ytDlpBaseArgs, ["--no-playlist", "--no-mtime", "--newline"]);
+        assert.deepEqual(loaded.appModule.ytDlpBaseArgs, ["--no-playlist", "--no-mtime", "--newline", "--match-filter", "!is_live & !is_upcoming", "--playlist-items", "1"]);
 
         const calls = await runDownload(loaded, mode);
 
@@ -305,7 +306,7 @@ for (const mode of ["audio", "video", "separate"]) {
 
         assert.equal(loaded.appModule.ffmpegPath, binFfmpeg);
         assert.equal(loaded.appModule.ytDlpPath, binYtDlp);
-        assert.deepEqual(loaded.appModule.ytDlpBaseArgs, ["--ffmpeg-location", binFfmpeg, "--no-playlist", "--no-mtime", "--newline"]);
+        assert.deepEqual(loaded.appModule.ytDlpBaseArgs, ["--ffmpeg-location", binFfmpeg, "--no-playlist", "--no-mtime", "--newline", "--match-filter", "!is_live & !is_upcoming", "--playlist-items", "1"]);
 
         const calls = await runDownload(loaded, mode);
 
@@ -337,7 +338,7 @@ test("zmienna srodowiskowa wygrywa z plikiem w folderze bin obok app.js", () => 
 
     assert.equal(loaded.appModule.ffmpegPath, ffmpegFile);
     assert.equal(loaded.appModule.ytDlpPath, path.join(projectBinDir, `yt-dlp${exeSuffix}`));
-    assert.deepEqual(loaded.appModule.ytDlpBaseArgs, ["--ffmpeg-location", ffmpegFile, "--no-playlist", "--no-mtime", "--newline"]);
+    assert.deepEqual(loaded.appModule.ytDlpBaseArgs, ["--ffmpeg-location", ffmpegFile, "--no-playlist", "--no-mtime", "--newline", "--match-filter", "!is_live & !is_upcoming", "--playlist-items", "1"]);
 });
 
 // ---------- brak sciezek wpisanych na sztywno ----------

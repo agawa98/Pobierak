@@ -1,4 +1,5 @@
 // Testy wspolnych argumentow yt-dlp dodawanych kolejnymi zadaniami (B4: --no-playlist, B13e: --no-mtime, B13a: --newline).
+// BUG-1b: doszly --match-filter "!is_live & !is_upcoming" i --playlist-items 1 (oczekiwane listy argumentow w starszych testach uzupelnione).
 // Nic nie pobieraja z internetu i nie uruchamiaja yt-dlp: spawn jest podmieniony na atrape, ktora zapisuje argumenty.
 
 const test = require("node:test");
@@ -118,7 +119,7 @@ function assertNoPlaylistIsCorrect(args) {
 test("B4: buildYtDlpBaseArgs zawiera --no-playlist, gdy ffmpeg jest z PATH", () => {
     const { appModule } = loadApp();
 
-    assert.deepEqual(appModule.buildYtDlpBaseArgs({ command: "ffmpeg", fromPath: true }), ["--no-playlist", "--no-mtime", "--newline"]);
+    assert.deepEqual(appModule.buildYtDlpBaseArgs({ command: "ffmpeg", fromPath: true }), ["--no-playlist", "--no-mtime", "--newline", "--match-filter", "!is_live & !is_upcoming", "--playlist-items", "1"]);
 });
 
 test("B4: buildYtDlpBaseArgs zawiera --no-playlist takze obok --ffmpeg-location, a sciezka ffmpeg stoi zaraz po swojej opcji", () => {
@@ -129,11 +130,11 @@ test("B4: buildYtDlpBaseArgs zawiera --no-playlist takze obok --ffmpeg-location,
 
     assert.equal(args.filter(arg => arg === "--no-playlist").length, 1);
     assert.equal(args[args.indexOf("--ffmpeg-location") + 1], ffmpegFile);
-    assert.equal(args.length, 5);      // B13e: doszlo --no-mtime, B13a: doszlo --newline
+    assert.equal(args.length, 9);      // B13e: doszlo --no-mtime, B13a: doszlo --newline, BUG-1b: --match-filter i --playlist-items z wartosciami
 });
 
 test("B4: stala ytDlpBaseArgs (uzywana przez program) zawiera --no-playlist", () => {
-    assert.deepEqual(loadApp().appModule.ytDlpBaseArgs, ["--no-playlist", "--no-mtime", "--newline"]);
+    assert.deepEqual(loadApp().appModule.ytDlpBaseArgs, ["--no-playlist", "--no-mtime", "--newline", "--match-filter", "!is_live & !is_upcoming", "--playlist-items", "1"]);
 
     const ffmpegFile = path.join(os.tmpdir(), "moje programy", "ffmpeg-wlasny");
     const withFfmpeg = loadApp({ FFMPEG_PATH: ffmpegFile }).appModule.ytDlpBaseArgs;
@@ -206,7 +207,7 @@ function assertNoMtimeIsCorrect(args) {
 test("B13e: buildYtDlpBaseArgs zawiera --no-mtime, gdy ffmpeg jest z PATH", () => {
     const { appModule } = loadApp();
 
-    assert.deepEqual(appModule.buildYtDlpBaseArgs({ command: "ffmpeg", fromPath: true }), ["--no-playlist", "--no-mtime", "--newline"]);
+    assert.deepEqual(appModule.buildYtDlpBaseArgs({ command: "ffmpeg", fromPath: true }), ["--no-playlist", "--no-mtime", "--newline", "--match-filter", "!is_live & !is_upcoming", "--playlist-items", "1"]);
 });
 
 test("B13e: buildYtDlpBaseArgs zawiera --no-mtime takze obok --ffmpeg-location", () => {
@@ -215,18 +216,18 @@ test("B13e: buildYtDlpBaseArgs zawiera --no-mtime takze obok --ffmpeg-location",
 
     assert.deepEqual(
         appModule.buildYtDlpBaseArgs({ command: ffmpegFile, fromPath: false }),
-        ["--ffmpeg-location", ffmpegFile, "--no-playlist", "--no-mtime", "--newline"]
+        ["--ffmpeg-location", ffmpegFile, "--no-playlist", "--no-mtime", "--newline", "--match-filter", "!is_live & !is_upcoming", "--playlist-items", "1"]
     );
 });
 
 test("B13e: stala ytDlpBaseArgs (uzywana przez program) zawiera --no-mtime", () => {
-    assert.deepEqual(loadApp().appModule.ytDlpBaseArgs, ["--no-playlist", "--no-mtime", "--newline"]);
+    assert.deepEqual(loadApp().appModule.ytDlpBaseArgs, ["--no-playlist", "--no-mtime", "--newline", "--match-filter", "!is_live & !is_upcoming", "--playlist-items", "1"]);
 
     const ffmpegFile = path.join(os.tmpdir(), "moje programy", "ffmpeg-wlasny");
 
     assert.deepEqual(
         loadApp({ FFMPEG_PATH: ffmpegFile }).appModule.ytDlpBaseArgs,
-        ["--ffmpeg-location", ffmpegFile, "--no-playlist", "--no-mtime", "--newline"]
+        ["--ffmpeg-location", ffmpegFile, "--no-playlist", "--no-mtime", "--newline", "--match-filter", "!is_live & !is_upcoming", "--playlist-items", "1"]
     );
 });
 
@@ -274,7 +275,7 @@ function assertNewlineIsCorrect(args) {
 test("B13a: buildYtDlpBaseArgs zawiera --newline, gdy ffmpeg jest z PATH", () => {
     const { appModule } = loadApp();
 
-    assert.deepEqual(appModule.buildYtDlpBaseArgs({ command: "ffmpeg", fromPath: true }), ["--no-playlist", "--no-mtime", "--newline"]);
+    assert.deepEqual(appModule.buildYtDlpBaseArgs({ command: "ffmpeg", fromPath: true }), ["--no-playlist", "--no-mtime", "--newline", "--match-filter", "!is_live & !is_upcoming", "--playlist-items", "1"]);
 });
 
 test("B13a: buildYtDlpBaseArgs zawiera --newline takze obok --ffmpeg-location", () => {
@@ -283,7 +284,7 @@ test("B13a: buildYtDlpBaseArgs zawiera --newline takze obok --ffmpeg-location", 
 
     assert.deepEqual(
         appModule.buildYtDlpBaseArgs({ command: ffmpegFile, fromPath: false }),
-        ["--ffmpeg-location", ffmpegFile, "--no-playlist", "--no-mtime", "--newline"]
+        ["--ffmpeg-location", ffmpegFile, "--no-playlist", "--no-mtime", "--newline", "--match-filter", "!is_live & !is_upcoming", "--playlist-items", "1"]
     );
 });
 
@@ -308,6 +309,55 @@ for (const mode of ["audio", "video", "separate"]) {
         for (const call of calls) {
             assertNewlineIsCorrect(call.args);
             assert.equal(call.args[call.args.indexOf("--ffmpeg-location") + 1], ffmpegFile);
+        }
+    });
+}
+
+// ---------- BUG-1b: --match-filter "!is_live & !is_upcoming" i --playlist-items 1 ----------
+
+// opcja ma byc dokladnie raz, z wartoscia zaraz po niej, przed adresem i nie w miejscu wartosci innej opcji
+function assertOptionWithValue(args, option, value) {
+    assert.equal(args.filter(arg => arg === option).length, 1, `${option} ma byc dokladnie raz`);
+
+    const index = args.indexOf(option);
+
+    assert.equal(args[index + 1], value, `po ${option} ma stac ${value}`);
+    assert.ok(index + 1 < args.length - 1, `${option} z wartoscia ma stac przed adresem`);
+    assert.equal(args[args.length - 1], playlistUrl);
+    assert.equal(optionsWithValue.includes(args[index - 1]), false, `${option} stoi jako wartosc opcji ${args[index - 1]}`);
+}
+
+function assertLiveAndPlaylistItems(args) {
+    assertOptionWithValue(args, "--match-filter", "!is_live & !is_upcoming");
+    assertOptionWithValue(args, "--playlist-items", "1");
+    assert.equal(args.includes("--yes-playlist"), false);
+    assert.equal(args.includes("--live-from-start"), false, "--live-from-start pobieraloby transmisje");
+}
+
+test("BUG-1b: buildYtDlpBaseArgs zawiera --match-filter i --playlist-items z wartosciami (ffmpeg z PATH i z --ffmpeg-location)", () => {
+    const { appModule } = loadApp();
+    const ffmpegFile = path.join(os.tmpdir(), "gdzies", "ffmpeg");
+
+    for (const ffmpeg of [{ command: "ffmpeg", fromPath: true }, { command: ffmpegFile, fromPath: false }]) {
+        const args = [...appModule.buildYtDlpBaseArgs(ffmpeg), playlistUrl];
+
+        assertLiveAndPlaylistItems(args);
+    }
+});
+
+for (const mode of ["audio", "video", "separate"]) {
+    test(`BUG-1b: tryb ${mode} - kazde wywolanie yt-dlp ma --match-filter i --playlist-items (ffmpeg z PATH i z FFMPEG_PATH)`, async () => {
+        const ffmpegFile = path.join(os.tmpdir(), "moje programy", "ffmpeg-wlasny");
+
+        for (const env of [{}, { FFMPEG_PATH: ffmpegFile }]) {
+            const calls = await runDownload(loadApp(env), mode);
+
+            assert.equal(calls.length, expectedCallCount[mode]);
+
+            for (const call of calls) {
+                assert.equal(call.command, "yt-dlp");
+                assertLiveAndPlaylistItems(call.args);
+            }
         }
     });
 }

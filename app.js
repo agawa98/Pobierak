@@ -47,6 +47,23 @@ function resolveBinary(envName, baseName, options = {}) {
     return { command: baseName, fromPath: true };
 }
 
+// filtr yt-dlp odrzucajacy trwajace i zaplanowane transmisje
+const liveFilter = "!is_live & !is_upcoming";
+
+// komunikat, gdy yt-dlp pominal film przez liveFilter
+const liveStreamMessage = "To trwająca albo zaplanowana transmisja. Pobrać można dopiero zapis po jej zakończeniu.";
+
+// linia, ktora yt-dlp wypisuje na stdout (z kodem wyjscia 0), gdy film nie przejdzie --match-filter. sprawdzone na yt-dlp 2026.10.26:
+// [download] <tytul> does not pass filter (!is_live & !is_upcoming), skipping ..
+function isFilterSkipLine(line) {
+    return /^\[download\] .* does not pass filter \(.*\), skipping/.test(String(line).trim());
+}
+
+// blad rzucany przez funkcje pobierajace, gdy yt-dlp pominal film przez filtr transmisji
+function liveStreamError() {
+    return { message: liveStreamMessage, error: "" };
+}
+
 // wspolne argumenty kazdego wywolania yt-dlp. gdy ffmpeg jest z PATH, yt-dlp znajdzie go sam
 function buildYtDlpBaseArgs(ffmpeg) {
     const baseArgs = [];
@@ -58,6 +75,8 @@ function buildYtDlpBaseArgs(ffmpeg) {
     baseArgs.push("--no-playlist");      // link z &list= pobiera tylko jeden film, a nie cala playliste
     baseArgs.push("--no-mtime");         // plik dostaje date pobrania, a nie date wrzucenia filmu (inaczej sprzatanie usuwa go od razu)
     baseArgs.push("--newline");          // kazda aktualizacja postepu w osobnej linii (bez tego yt-dlp nadpisuje jedna linie znakiem \r)
+    baseArgs.push("--match-filter", liveFilter);   // trwajacej ani zaplanowanej transmisji nie pobieramy (yt-dlp ja pomija)
+    baseArgs.push("--playlist-items", "1");        // gdyby link z innego serwisu okazal sie lista, pobiera sie tylko pierwsza pozycja
 
     return baseArgs;
 }
@@ -261,9 +280,19 @@ function runProcess(command, args, label) {
         const childProcess = spawn(command, args);
 
         let errorOutput = "";       // tylko koncowka stderr (stderrTailLimit znakow)
+        let stdoutPartialLine = "";  // niedokonczona ostatnia linia stdout (linia moze przyjsc w kilku kawalkach)
+        let skippedByFilter = false; // yt-dlp wypisal, ze film nie przeszedl --match-filter (stdout nie jest zbierany, tylko sprawdzany)
 
         childProcess.stdout.on("data", (data) => {
             const text = data.toString();
+            const lines = (stdoutPartialLine + text).split(/\r\n|\n|\r/);
+
+            stdoutPartialLine = lines.pop().slice(-stderrTailLimit);
+
+            if (lines.some(isFilterSkipLine)) {
+                skippedByFilter = true;
+            }
+
             console.log(text);
             sendLogToClients(label, text);
         });
@@ -301,9 +330,17 @@ function runProcess(command, args, label) {
                 return;
             }
 
-            resolve({
-                errorOutput
-            });
+            if (isFilterSkipLine(stdoutPartialLine)) {     // ostatnia linia bez znaku konca linii
+                skippedByFilter = true;
+            }
+
+            const result = { errorOutput };
+
+            if (skippedByFilter) {     // pole tylko przy pominieciu, zwykly wynik wyglada jak dotad
+                result.skippedByFilter = true;
+            }
+
+            resolve(result);
         });
     });
 }
@@ -716,7 +753,11 @@ async function downloadAudio(url, format, bitrate, jobId) {
         url
     ];
 
-    await runProcess(ytDlpPath, ytDlpArgs, "YT-DLP AUDIO");     // tutaj uruchamiamy yt-dlp ktory sciaga plik z yt
+    const result = await runProcess(ytDlpPath, ytDlpArgs, "YT-DLP AUDIO");     // tutaj uruchamiamy yt-dlp ktory sciaga plik z yt
+
+    if (result.skippedByFilter) {
+        throw liveStreamError();
+    }
 
     const generatedFile = findGeneratedFile(jobId);
 
@@ -744,7 +785,11 @@ async function downloadVideo(url, resolution, format, jobId) {
         url
     ];
 
-    await runProcess(ytDlpPath, ytDlpArgs, "YT-DLP VIDEO");     // tutaj uruchamiamy yt-dlp ktory sciaga plik z yt
+    const result = await runProcess(ytDlpPath, ytDlpArgs, "YT-DLP VIDEO");     // tutaj uruchamiamy yt-dlp ktory sciaga plik z yt
+
+    if (result.skippedByFilter) {
+        throw liveStreamError();
+    }
 
     const generatedFile = findGeneratedFile(jobId);
 
@@ -781,8 +826,17 @@ async function downloadSeparate(url, resolution, format, jobId) {
         url
     ];
 
-    await runProcess(ytDlpPath, videoArgs, "YT-DLP VIDEO ONLY");        //odpalamy dwa razy, raz dla wideo raz dla audio
-    await runProcess(ytDlpPath, audioArgs, "YT-DLP AUDIO ONLY");
+    const videoResult = await runProcess(ytDlpPath, videoArgs, "YT-DLP VIDEO ONLY");        //odpalamy dwa razy, raz dla wideo raz dla audio
+
+    if (videoResult.skippedByFilter) {      // transmisja: drugiego wywolania nie ma po co uruchamiac
+        throw liveStreamError();
+    }
+
+    const audioResult = await runProcess(ytDlpPath, audioArgs, "YT-DLP AUDIO ONLY");
+
+    if (audioResult.skippedByFilter) {
+        throw liveStreamError();
+    }
 
     const videoFile = findGeneratedFile(jobId, "video");
     const audioFile = findGeneratedFile(jobId, "audio");
@@ -1254,6 +1308,9 @@ module.exports = {
     resolveBinary,
     buildYtDlpBaseArgs,
     ytDlpBaseArgs,
+    liveFilter,
+    liveStreamMessage,
+    isFilterSkipLine,
     ytDlpPath,
     ffmpegPath,
     downloadAudio,
