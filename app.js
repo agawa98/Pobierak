@@ -147,9 +147,24 @@ function badRequest(res, message) {
     });
 }
 
-//funkcja usuwajaca stare pliki z folderu downloads
-// folder mozna podac tylko po to, zeby testy sprzataly folder tymczasowy; program zawsze sprzata downloads
-function cleanupOldDownloads(dir = downloadsDir) {
+// zadania w toku: jobId -> obiekt zadania. endpoint /api/download dodaje wpis na starcie i usuwa go w finally.
+// obiekt zadania (a nie samo jobId), zeby mozna bylo przy nim trzymac np. aktualny proces i znacznik anulowania
+const activeJobs = new Map();
+
+// czy plik nalezy do zadania w toku: nazwy plikow zadania zawieraja "[<jobId>]" (takze pliki .part i tmp- z ffmpeg)
+function isActiveJobFile(fileName, jobs = activeJobs) {
+    for (const jobId of jobs.keys()) {
+        if (fileName.includes(`[${jobId}]`)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+//funkcja usuwajaca stare pliki z folderu downloads. pliki zadan w toku zostaja, nawet gdy sa starsze niz limit
+// folder i zbior zadan mozna podac tylko po to, zeby testy sprzataly folder tymczasowy; program zawsze sprzata downloads
+function cleanupOldDownloads(dir = downloadsDir, jobs = activeJobs) {
     const maxAgeMs = fileMaxAgeMinutes * 60 * 1000;
     const now = Date.now();
 
@@ -165,6 +180,10 @@ function cleanupOldDownloads(dir = downloadsDir) {
     files.forEach((fileName) => {
         // caly krok dla jednego pliku jest w try: yt-dlp w kazdej chwili moze zmienic nazwe pliku albo go usunac
         try {
+            if (isActiveJobFile(fileName, jobs)) {
+                return;
+            }
+
             const filePath = path.join(dir, fileName);
             const fileStats = fs.statSync(filePath);
 
@@ -1071,6 +1090,8 @@ app.post("/api/download", async (req, res) => {
 
     const jobId = getJobId();
 
+    activeJobs.set(jobId, { jobId, startedAt: Date.now() });
+
     try {
         if (type === "audio") {
             const downloadedFile = await downloadAudio(url, format, bitrate, jobId);
@@ -1161,6 +1182,9 @@ app.post("/api/download", async (req, res) => {
             message: error.message || "Wystąpił błąd podczas pobierania.",
             error: error.error || error.message || String(error)
         });
+    } finally {
+        // po sukcesie i po bledzie: od teraz gotowe pliki sprzata zwykly licznik 30 minut (od zapisania pliku)
+        activeJobs.delete(jobId);
     }
 });
 
@@ -1304,6 +1328,8 @@ module.exports = {
     app,
     sendLogToClients,
     cleanupOldDownloads,
+    activeJobs,
+    isActiveJobFile,
     fileMaxAgeMinutes,
     resolveBinary,
     buildYtDlpBaseArgs,
