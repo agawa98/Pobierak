@@ -147,6 +147,219 @@ function badRequest(res, message) {
     });
 }
 
+// --- tylko ten sam komputer ---
+
+// czy adres nadawcy to petla zwrotna (127.0.0.0/8, ::1, takze zapis IPv4 w IPv6: ::ffff:127.x.x.x)
+function isLoopbackAddress(address) {
+    if (typeof address !== "string" || address === "") {
+        return false;
+    }
+
+    let ip = address.toLowerCase();
+
+    if (ip.startsWith("::ffff:")) {
+        ip = ip.slice("::ffff:".length);
+    }
+
+    if (ip === "::1" || ip === "0:0:0:0:0:0:0:1") {
+        return true;
+    }
+
+    return /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(ip);
+}
+
+// przepuszcza tylko zadania z tego samego komputera. patrzy na adres gniazda (nie na naglowki, ktore da sie podrobic),
+// wiec dziala tez przy recznie ustawionym HOST=0.0.0.0. inne adresy dostaja 403
+function onlyLocalRequests(req, res, next) {
+    const address = req.socket && req.socket.remoteAddress;
+
+    if (isLoopbackAddress(address)) {
+        return next();
+    }
+
+    return res.status(403).json({
+        success: false,
+        message: "Ten adres działa tylko z komputera, na którym uruchomiono Pobieraka."
+    });
+}
+
+// --- okno wyboru folderu ---
+
+const folderPickerTitle = "Wybierz folder docelowy";
+
+// skrypt PowerShell: okno FolderBrowserDialog z niewidocznym wlascicielem TopMost, zeby okno nie schowalo sie pod przegladarka.
+// sciezka idzie na wyjscie w UTF-8 (polskie litery); zamkniecie okna bez wyboru = puste wyjscie i kod 0
+function buildWindowsFolderPickerScript() {
+    return [
+        "$ErrorActionPreference = 'Stop'",
+        "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8",
+        "Add-Type -AssemblyName System.Windows.Forms",
+        "$owner = New-Object System.Windows.Forms.Form",
+        "$owner.TopMost = $true",
+        "$owner.ShowInTaskbar = $false",
+        "$owner.FormBorderStyle = 'None'",
+        "$owner.StartPosition = 'CenterScreen'",
+        "$owner.Size = New-Object System.Drawing.Size(1, 1)",
+        "$owner.Opacity = 0",
+        "$owner.Show()",
+        "$owner.Activate()",
+        "$dialog = New-Object System.Windows.Forms.FolderBrowserDialog",
+        `$dialog.Description = '${folderPickerTitle}'`,
+        "$dialog.ShowNewFolderButton = $true",
+        "$result = $dialog.ShowDialog($owner)",
+        "$owner.Close()",
+        "if ($result -eq [System.Windows.Forms.DialogResult]::OK) { [Console]::Out.Write($dialog.SelectedPath) }"
+    ].join("\n");
+}
+
+// polecenia, ktorymi da sie otworzyc okno wyboru folderu na danym systemie, w kolejnosci prob.
+// pusta lista = na tym systemie nie ma czym otworzyc okna
+function buildFolderPickerCommands(platform = process.platform, env = process.env) {
+    if (platform === "win32") {
+        // -EncodedCommand (UTF-16LE w base64): skrypt bez klopotow z cudzyslowami i polskimi literami w wierszu polecen
+        const encoded = Buffer.from(buildWindowsFolderPickerScript(), "utf16le").toString("base64");
+
+        return [{
+            command: "powershell.exe",
+            args: ["-NoProfile", "-NonInteractive", "-STA", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded]
+        }];
+    }
+
+    if (platform === "darwin") {
+        return [{
+            command: "osascript",
+            args: ["-e", `POSIX path of (choose folder with prompt "${folderPickerTitle}")`]
+        }];
+    }
+
+    // Linux i inne: okno wymaga dzialajacego ekranu (X11 albo Wayland)
+    if (!env.DISPLAY && !env.WAYLAND_DISPLAY) {
+        return [];
+    }
+
+    return [
+        { command: "zenity", args: ["--file-selection", "--directory", `--title=${folderPickerTitle}`] },
+        { command: "kdialog", args: ["--getexistingdirectory", env.HOME || "/", "--title", folderPickerTitle] }
+    ];
+}
+
+const folderPickerUnavailableMessage = "Nie udało się otworzyć okna wyboru folderu. Wklej ścieżkę folderu ręcznie.";
+
+// zamienia wynik procesu okna ({ code, stdout, stderr, error }) na jedna z trzech odpowiedzi:
+// { result: "selected", folder }, { result: "cancelled" } albo { result: "unavailable", message }
+function interpretFolderPickerResult(platform, processResult) {
+    const { code, stdout = "", stderr = "", error } = processResult;
+    const unavailable = { result: "unavailable", message: folderPickerUnavailableMessage };
+
+    if (error) {
+        return unavailable;
+    }
+
+    let folder = String(stdout).replace(/[\r\n]+$/, "");
+
+    if (code === 0 && folder === "") {
+        return { result: "cancelled" };
+    }
+
+    if (code === 0) {
+        // osascript i zenity koncza sciezke ukosnikiem; zostawiamy go tylko dla samego korzenia dysku albo "/"
+        const pathTools = platform === "win32" ? path.win32 : path.posix;
+        const root = pathTools.parse(folder).root;
+
+        if (folder.length > root.length) {
+            folder = folder.replace(/[\\/]+$/, "");
+        }
+
+        if (!pathTools.isAbsolute(folder)) {
+            return unavailable;
+        }
+
+        return { result: "selected", folder };
+    }
+
+    // macOS: zamkniecie okna to kod 1 i blad -128 ("User canceled")
+    if (platform === "darwin") {
+        return code === 1 && /-128/.test(String(stderr)) ? { result: "cancelled" } : unavailable;
+    }
+
+    // zenity i kdialog: kod 1 = zamkniecie okna bez wyboru. Windows: kazdy kod inny niz 0 to blad skryptu
+    if (platform !== "win32" && code === 1) {
+        return { result: "cancelled" };
+    }
+
+    return unavailable;
+}
+
+// uruchamia jedno polecenie okna i zbiera jego wyjscie. nie odrzuca obietnicy: bledy startu wracaja w polu error
+function runFolderPickerCommand(spawnImpl, command, args) {
+    return new Promise((resolve) => {
+        let child;
+
+        try {
+            child = spawnImpl(command, args, { windowsHide: true });
+        } catch (error) {
+            resolve({ error });
+            return;
+        }
+
+        let stdout = "";
+        let stderr = "";
+        let finished = false;
+
+        const finish = (result) => {
+            if (!finished) {
+                finished = true;
+                resolve(result);
+            }
+        };
+
+        if (child.stdout) {
+            child.stdout.on("data", (chunk) => { stdout += chunk.toString("utf8"); });
+        }
+
+        if (child.stderr) {
+            child.stderr.on("data", (chunk) => { stderr += chunk.toString("utf8"); });
+        }
+
+        child.on("error", (error) => finish({ error }));
+        child.on("close", (code) => finish({ code, stdout, stderr }));
+    });
+}
+
+// otwiera okno wyboru folderu. options sluzy testom (system, zmienne srodowiskowe, atrapa spawn).
+// gdy programu nie ma (ENOENT), probuje nastepnego z listy (Linux: zenity, potem kdialog)
+async function pickFolder(options = {}) {
+    const platform = options.platform || process.platform;
+    const env = options.env || process.env;
+    const spawnImpl = options.spawnImpl || spawn;
+
+    for (const { command, args } of buildFolderPickerCommands(platform, env)) {
+        const processResult = await runFolderPickerCommand(spawnImpl, command, args);
+
+        if (processResult.error && processResult.error.code === "ENOENT") {
+            continue;
+        }
+
+        return interpretFolderPickerResult(platform, processResult);
+    }
+
+    return { result: "unavailable", message: folderPickerUnavailableMessage };
+}
+
+// ustawienia pickFolder dla adresu /api/folder/wybierz. puste = prawdziwy system; testy podstawiaja tu atrape spawn
+const folderPickerOptions = {};
+
+// wszystkie adresy /api/folder/... tylko z tego samego komputera
+app.use("/api/folder", onlyLocalRequests);
+
+// otwiera systemowe okno wyboru folderu. odpowiedz (zawsze 200): result "selected" z polem folder,
+// "cancelled" (okno zamkniete bez wyboru) albo "unavailable" z message (strona pokaze pole do recznego wpisania)
+app.post("/api/folder/wybierz", async (req, res) => {
+    const outcome = await pickFolder(folderPickerOptions);
+
+    res.json({ success: outcome.result === "selected", ...outcome });
+});
+
 // zadania w toku: jobId -> obiekt zadania. endpoint /api/download dodaje wpis na starcie i usuwa go w finally.
 // obiekt zadania (a nie samo jobId), zeby mozna bylo przy nim trzymac np. aktualny proces i znacznik anulowania
 const activeJobs = new Map();
@@ -1252,7 +1465,7 @@ function buildDownloadFiles(fileNames) {
 }
 
 // tutaj mamy endpoint na ktorym wszystko sie dzieje
-app.post("/api/download", async (req, res) => {
+app.post("/api/download", onlyLocalRequests, async (req, res) => {
     console.log(req.body);
 
     const data = validateRequest(req, res);
@@ -1590,5 +1803,14 @@ module.exports = {
     processDownloadedFile,
     buildDownloadUrl,
     buildDownloadFiles,
-    downloadsDir
+    downloadsDir,
+    isLoopbackAddress,
+    onlyLocalRequests,
+    buildWindowsFolderPickerScript,
+    buildFolderPickerCommands,
+    interpretFolderPickerResult,
+    runFolderPickerCommand,
+    pickFolder,
+    folderPickerOptions,
+    folderPickerUnavailableMessage
 };
