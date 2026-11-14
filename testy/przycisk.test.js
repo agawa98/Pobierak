@@ -87,6 +87,8 @@ function buildPage({ trimStart = "", trimEnd = "", fetchImpl } = {}) {
         showStatusSuccess() {},
         getSelectedType: () => "audio",
         getSelectedBitrate: () => "best",
+        // sprawdzanie linku (zadanie BUG-1a) ma wlasne testy w link.test.js; tu link jest zawsze przyjety
+        validateUrl: () => true,
         getExperimentalOptions: () => ({ trimStart, trimEnd }),
         fetch: (...args) => {
             fetchCalls.push(args);

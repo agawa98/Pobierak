@@ -800,6 +800,70 @@ async function downloadSeparate(url, resolution, format, jobId) {
     };
 }
 
+//funkcja sprawdzajaca link YouTube przed pobieraniem: null = link przyjety, tekst = komunikat bledu.
+// przyjmuje tylko link do jednego filmu, odrzuca playlisty, kanaly i inne strony YouTube.
+// linki z innych serwisow (i takie, ktorych nie da sie odczytac) przepuszcza bez oceny - ocenia je yt-dlp albo reszta walidacji.
+// ta sama funkcja jest w public/script.js - obie kopie maja dawac identyczne wyniki
+function sprawdzLinkYoutube(url) {
+    const youtubeHosts = [
+        "youtube.com",
+        "www.youtube.com",
+        "m.youtube.com",
+        "music.youtube.com",
+        "youtube-nocookie.com",
+        "www.youtube-nocookie.com",
+        "youtu.be"
+    ];
+    const playlistMessage = "To link do playlisty. Wklej link do jednego filmu.";
+    const channelMessage = "To link do kanału. Wklej link do jednego filmu.";
+    const notVideoMessage = "To nie jest link do filmu.";
+
+    let parsedUrl;
+
+    try {
+        parsedUrl = new URL(url);
+    } catch {
+        return null;
+    }
+
+    if (!youtubeHosts.includes(parsedUrl.hostname)) {
+        return null;
+    }
+
+    // czesci sciezki bez pustych (ukosnik na koncu i podwojne ukosniki nie maja znaczenia)
+    const parts = parsedUrl.pathname.split("/").filter(part => part !== "");
+    const first = parts.length > 0 ? parts[0] : "";
+    const videoId = parsedUrl.searchParams.get("v");
+    const listId = parsedUrl.searchParams.get("list");
+
+    if (parsedUrl.hostname === "youtu.be") {
+        return parts.length === 1 ? null : notVideoMessage;
+    }
+
+    if (parts.length === 1 && first === "watch") {
+        if (videoId) {
+            return null;
+        }
+
+        return listId ? playlistMessage : notVideoMessage;
+    }
+
+    if (parts.length === 1 && first === "playlist" && listId) {
+        return playlistMessage;
+    }
+
+    if (parts.length === 2 && ["shorts", "live", "embed"].includes(first)) {
+        return null;
+    }
+
+    // kanal z dowolna podstrona (np. /videos, /shorts, /streams, /live)
+    if ((first.startsWith("@") && first.length > 1) || (["channel", "c", "user"].includes(first) && parts.length >= 2)) {
+        return channelMessage;
+    }
+
+    return notVideoMessage;
+}
+
 //funkcja walidująca dane przysylane z frontendu na serwer
 function validateRequest(req, res) {
     const { url, type, bitrate, resolution, format, experimental } = req.body;
@@ -813,6 +877,13 @@ function validateRequest(req, res) {
         new URL(url);
     } catch {
         badRequest(res, "Nieprawidłowy URL.");
+        return null;
+    }
+
+    const linkError = sprawdzLinkYoutube(url);
+
+    if (linkError) {
+        badRequest(res, linkError);
         return null;
     }
 
@@ -1189,6 +1260,7 @@ module.exports = {
     downloadVideo,
     downloadSeparate,
     parseTimeToSeconds,
+    sprawdzLinkYoutube,
     runProcess,
     buildProcessErrorMessage,
     buildMissingProgramMessage,
