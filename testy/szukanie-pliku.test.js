@@ -4,6 +4,7 @@
 // Nic nie jest pobierane z internetu, yt-dlp i ffmpeg nie sa uruchamiane (spawn jest podmieniony na atrape).
 // Testy nie pisza do folderu downloads: lista jego plikow jest podstawiana.
 
+const { folderDocelowy } = require("./folder-docelowy-pomoc");       // UL-2b: zadanie pobrania musi miec pole folder
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -65,7 +66,7 @@ async function postDownload(server, body) {
     const response = await fetch(`http://127.0.0.1:${server.address().port}/api/download`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ folder: folderDocelowy, ...body }),
         signal: AbortSignal.timeout(10000)      // gdyby serwer nie odpowiedzial, test pada zamiast wisiec
     });
 
@@ -251,12 +252,11 @@ for (const title of ["my video essay", "audio video", "zwykly tytul"]) {
             assert.match(videoName, / video \[[0-9a-f]{8}\]\.mkv$/);
             assert.match(audioName, / audio \[[0-9a-f]{8}\]\.mp3$/);
 
-            const urls = result.json.downloadUrls.map(url => decodeURIComponent(url));
-
-            assert.equal(urls.length, 2);
-            assert.ok(urls[0].endsWith(`/${videoName}`), `pierwszy adres ${urls[0]} nie wskazuje pliku wideo ${videoName}`);
-            assert.ok(urls[1].endsWith(`/${audioName}`), `drugi adres ${urls[1]} nie wskazuje pliku audio ${audioName}`);
-            assert.ok(decodeURIComponent(result.json.downloadUrl).endsWith(`/${audioName}`));
+            // UL-2b: zamiast adresow odpowiedz niesie nazwy plikow i pelne sciezki w folderze docelowym: najpierw wideo, potem audio
+            assert.deepEqual(result.json.files, [
+                { name: videoName, path: path.join(folderDocelowy, videoName) },
+                { name: audioName, path: path.join(folderDocelowy, audioName) }
+            ]);
         } finally {
             await new Promise(resolve => server.close(resolve));
         }

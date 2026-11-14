@@ -103,7 +103,6 @@ const cleanupIntervalMinutes = 10;
 fs.mkdirSync(downloadsDir, { recursive: true });
 
 app.use(express.static(path.join(__dirname, "public")));
-app.use("/downloads", express.static(downloadsDir));
 
 
 
@@ -913,6 +912,12 @@ async function runFfmpegAndReplace(ffmpegArgs, label, originalPath, tempPath, pr
     } catch (error) {
         // wynik jest poprawny, tylko nie dalo sie zmienic mu nazwy (np. oryginal jest zablokowany) - oddajemy go pod nazwa tymczasowa
         console.log("Nie udało się zmienić nazwy pliku tymczasowego:", error.message);
+
+        // zadanie pamieta te nazwe, zeby przy przenoszeniu do folderu docelowego zdjac z niej przedrostek "tmp-"
+        if (job && job.tempNamedFiles) {
+            job.tempNamedFiles.add(path.basename(tempPath));
+        }
+
         return path.basename(tempPath);
     }
 
@@ -1334,9 +1339,150 @@ function sprawdzLinkYoutube(url) {
     return notVideoMessage;
 }
 
+// sprawdza folder docelowy z zadania pobrania. zwraca null, gdy folder jest dobry, albo komunikat bledu.
+// zapis sprawdzamy naprawde (plik probny tworzony i od razu usuwany), bo na Windowsie fs.access nie widzi uprawnien folderu
+function sprawdzFolderDocelowy(folder) {
+    if (typeof folder !== "string" || folder.trim() === "") {
+        return "Nie wybrano folderu docelowego.";
+    }
+
+    if (!path.isAbsolute(folder)) {
+        return `Folder docelowy musi być pełną ścieżką: ${folder}`;
+    }
+
+    let stats;
+
+    try {
+        stats = fs.statSync(folder);
+    } catch {
+        return `Folder docelowy nie istnieje: ${folder}`;
+    }
+
+    if (!stats.isDirectory()) {
+        return `Folder docelowy nie istnieje: ${folder}`;
+    }
+
+    const probePath = path.join(folder, `.pobierak-proba-${randomUUID().slice(0, 8)}`);
+
+    try {
+        fs.closeSync(fs.openSync(probePath, "wx"));
+    } catch {
+        return `Nie można zapisywać w folderze docelowym: ${folder}`;
+    }
+
+    try {
+        fs.unlinkSync(probePath);
+    } catch (error) {
+        console.log("Nie udało się usunąć pliku próbnego:", error.message);
+    }
+
+    return null;
+}
+
+// nazwa, pod ktora gotowy plik trafi do folderu docelowego, gdy plik o zwyklej nazwie juz tam jest:
+// numer przed rozszerzeniem - "nazwa (2).mp3", "nazwa (3).mp3"...
+function buildTargetFileName(fileName, number = 1) {
+    if (number <= 1) {
+        return fileName;
+    }
+
+    const extension = path.extname(fileName);
+
+    return `${fileName.slice(0, fileName.length - extension.length)} (${number})${extension}`;
+}
+
+// ile numerow probujemy, zanim uznamy, ze nie da sie znalezc wolnej nazwy
+const targetNameAttempts = 1000;
+
+// przenosi gotowy plik z folderu roboczego do folderu docelowego i zwraca { name, path } (pelna sciezka na dysku).
+// istniejacego pliku nie nadpisuje - dodaje numer do nazwy. ten sam dysk: zmiana nazwy; inny dysk (EXDEV): kopiowanie i usuniecie.
+// sciezka trafia do job.movedFiles, zeby anulowanie albo blad przy kolejnym pliku mogly usunac to, co juz przeniesione
+async function moveToTargetFolder(fileName, targetDir, job = null, dir = downloadsDir) {
+    const sourcePath = path.join(dir, fileName);
+
+    // wynik ffmpeg, ktoremu nie udalo sie nadac koncowej nazwy, lezy w folderze roboczym pod nazwa "tmp-...".
+    // w folderze uzytkownika plikow tmp- nie ma byc, wiec przedrostek znika (tytul filmu zaczynajacy sie od "tmp-" zostaje)
+    const tempNamed = Boolean(job && job.tempNamedFiles && job.tempNamedFiles.has(fileName));
+    const baseName = tempNamed ? fileName.slice("tmp-".length) : fileName;
+
+    for (let number = 1; number <= targetNameAttempts; number++) {
+        const name = buildTargetFileName(baseName, number);
+        const targetPath = path.join(targetDir, name);
+
+        if (fs.existsSync(targetPath)) {
+            continue;
+        }
+
+        try {
+            await fs.promises.rename(sourcePath, targetPath);
+        } catch (error) {
+            if (error.code !== "EXDEV") {
+                throw error;
+            }
+
+            try {
+                // COPYFILE_EXCL: jesli plik o tej nazwie pojawil sie w miedzyczasie, kopiowanie go nie nadpisze
+                await fs.promises.copyFile(sourcePath, targetPath, fs.constants.COPYFILE_EXCL);
+            } catch (copyError) {
+                if (copyError.code === "EEXIST") {
+                    continue;
+                }
+
+                // niedokonczona kopia nie zostaje w folderze uzytkownika
+                await fs.promises.rm(targetPath, { force: true }).catch(() => {});
+                throw copyError;
+            }
+
+            if (job) {
+                job.movedFiles.push(targetPath);
+            }
+
+            await fs.promises.unlink(sourcePath);
+
+            return { name, path: targetPath };
+        }
+
+        if (job) {
+            job.movedFiles.push(targetPath);
+        }
+
+        return { name, path: targetPath };
+    }
+
+    throw new Error(`Nie udało się znaleźć wolnej nazwy pliku w folderze docelowym: ${targetDir}`);
+}
+
+// przenosi gotowe pliki zadania do folderu docelowego, po kolei. zwraca liste { name, path } do odpowiedzi serwera
+async function moveFilesToTargetFolder(fileNames, targetDir, job = null, dir = downloadsDir) {
+    const files = [];
+
+    for (const fileName of fileNames) {
+        throwIfCancelled(job);      // anulowane zadanie niczego juz nie przenosi
+        files.push(await moveToTargetFolder(fileName, targetDir, job, dir));
+    }
+
+    return files;
+}
+
+// usuwa z folderu docelowego pliki, ktore to zadanie samo tam przenioslo (po anulowaniu albo bledzie w trakcie przenoszenia).
+// dotyka tylko sciezek z job.movedFiles - niczego innego w folderze uzytkownika program nie usuwa
+function removeMovedFiles(job) {
+    for (const filePath of job.movedFiles) {
+        try {
+            fs.unlinkSync(filePath);
+        } catch (error) {
+            if (error.code !== "ENOENT") {
+                console.log("Nie udało się usunąć pliku z folderu docelowego:", error.message);
+            }
+        }
+    }
+
+    job.movedFiles = [];
+}
+
 //funkcja walidująca dane przysylane z frontendu na serwer
 function validateRequest(req, res) {
-    const { url, type, bitrate, resolution, format, experimental } = req.body;
+    const { url, type, bitrate, resolution, format, experimental, folder } = req.body;
 
     if (!url || !type || !format) {
         badRequest(res, "Brakuje podstawowych danych.");
@@ -1441,6 +1587,14 @@ function validateRequest(req, res) {
         return null;
     }
 
+    // folder sprawdzamy na koncu: najpierw bledy formularza, potem folder (serwer go nie pamieta, przychodzi w kazdym zadaniu)
+    const folderError = sprawdzFolderDocelowy(folder);
+
+    if (folderError) {
+        badRequest(res, folderError);
+        return null;
+    }
+
     return {
         url,
         type,
@@ -1449,19 +1603,9 @@ function validateRequest(req, res) {
         format,
         experimental,
         trimStartSeconds,
-        trimEndSeconds
+        trimEndSeconds,
+        folder: path.resolve(folder)
     };
-}
-
-// adres pliku z folderu downloads. nazwa jest kodowana, bo zawiera tytul filmu, a ten moze miec znaki #, % albo ?
-// (bez kodowania przegladarka ucina adres na # i ?, a % daje blad 400)
-function buildDownloadUrl(fileName) {
-    return `/downloads/${encodeURIComponent(fileName)}`;
-}
-
-// lista plikow do odpowiedzi serwera: nazwa pliku i jego adres
-function buildDownloadFiles(fileNames) {
-    return fileNames.map((name) => ({ name, url: buildDownloadUrl(name) }));
 }
 
 // tutaj mamy endpoint na ktorym wszystko sie dzieje
@@ -1482,13 +1626,18 @@ app.post("/api/download", onlyLocalRequests, async (req, res) => {
         format,
         experimental,
         trimStartSeconds,
-        trimEndSeconds
+        trimEndSeconds,
+        folder
     } = data;
 
     const jobId = getJobId();
 
     // process - aktualnie dzialajacy yt-dlp albo ffmpeg tego zadania, cancelled - znacznik anulowania
-    const job = { jobId, startedAt: Date.now(), process: null, cancelled: false };
+    // movedFiles - sciezki plikow, ktore zadanie przenioslo juz do folderu docelowego,
+    // tempNamedFiles - wyniki ffmpeg, ktore zostaly w folderze roboczym pod nazwa "tmp-..."
+    const job = { jobId, startedAt: Date.now(), process: null, cancelled: false, movedFiles: [], tempNamedFiles: new Set() };
+
+    let finished = false;       // gotowe pliki sa w folderze docelowym i idzie odpowiedz z sukcesem
 
     activeJobs.set(jobId, job);
 
@@ -1515,13 +1664,17 @@ app.post("/api/download", onlyLocalRequests, async (req, res) => {
                 job
             });
 
+            // dopiero gotowy plik trafia do folderu docelowego
+            const files = await moveFilesToTargetFolder([finalFile], folder, job);
+
             throwIfCancelled(job);      // anulowane zadanie nie wysyla odpowiedzi
+
+            finished = true;
 
             return res.json({
                 success: true,
                 message: "Audio gotowe do pobrania.",
-                downloadUrl: buildDownloadUrl(finalFile),
-                files: buildDownloadFiles([finalFile]),
+                files,
                 receivedData: data
             });
         }
@@ -1540,13 +1693,17 @@ app.post("/api/download", onlyLocalRequests, async (req, res) => {
                 job
             });
 
+            // dopiero gotowy plik trafia do folderu docelowego
+            const files = await moveFilesToTargetFolder([finalFile], folder, job);
+
             throwIfCancelled(job);      // anulowane zadanie nie wysyla odpowiedzi
+
+            finished = true;
 
             return res.json({
                 success: true,
                 message: "Video gotowe do pobrania.",
-                downloadUrl: buildDownloadUrl(finalFile),
-                files: buildDownloadFiles([finalFile]),
+                files,
                 receivedData: data
             });
         }
@@ -1576,17 +1733,17 @@ app.post("/api/download", onlyLocalRequests, async (req, res) => {
                 job
             });
 
+            // dopiero gotowe pliki trafiaja do folderu docelowego: najpierw obraz, potem dzwiek
+            const files = await moveFilesToTargetFolder([finalVideoFile, finalAudioFile], folder, job);
+
             throwIfCancelled(job);      // anulowane zadanie nie wysyla odpowiedzi
+
+            finished = true;
 
             return res.json({
                 success: true,
                 message: "Video i audio osobno gotowe do pobrania.",
-                downloadUrl: buildDownloadUrl(finalAudioFile),
-                downloadUrls: [
-                    buildDownloadUrl(finalVideoFile),
-                    buildDownloadUrl(finalAudioFile)
-                ],
-                files: buildDownloadFiles([finalVideoFile, finalAudioFile]),
+                files,
                 receivedData: data
             });
         }
@@ -1605,12 +1762,17 @@ app.post("/api/download", onlyLocalRequests, async (req, res) => {
             error: error.error || error.message || String(error)
         });
     } finally {
-        // anulowane zadanie: procesy sa juz zabite, usuwamy wszystkie jego pliki
+        // anulowane zadanie: procesy sa juz zabite, usuwamy wszystkie jego pliki z folderu roboczego
         if (job.cancelled) {
             await removeJobFiles(jobId);
         }
 
-        // po sukcesie i po bledzie: od teraz gotowe pliki sprzata zwykly licznik 30 minut (od zapisania pliku)
+        // anulowanie albo blad w trakcie przenoszenia: w folderze docelowym nie zostaje polowa wyniku
+        if (!finished) {
+            removeMovedFiles(job);
+        }
+
+        // po bledzie: resztki w folderze roboczym sprzata zwykly licznik 30 minut (od zapisania pliku)
         activeJobs.delete(jobId);
     }
 });
@@ -1801,8 +1963,11 @@ module.exports = {
     buildTrimVideoArgs,
     shouldProcessMedia,
     processDownloadedFile,
-    buildDownloadUrl,
-    buildDownloadFiles,
+    sprawdzFolderDocelowy,
+    buildTargetFileName,
+    moveToTargetFolder,
+    moveFilesToTargetFolder,
+    removeMovedFiles,
     downloadsDir,
     isLoopbackAddress,
     onlyLocalRequests,

@@ -2,6 +2,7 @@
 // Nic nie pobieraja z internetu i nie uruchamiaja yt-dlp ani ffmpeg: spawn jest podmieniony na atrape,
 // ktora zapisuje argumenty. Testy nie pisza do folderu downloads: lista jego plikow jest podstawiana.
 
+const { folderDocelowy } = require("./folder-docelowy-pomoc");       // UL-2b: zadanie pobrania musi miec pole folder
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -51,7 +52,7 @@ async function postDownload(server, body) {
     const response = await fetch(`http://127.0.0.1:${server.address().port}/api/download`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body)
+        body: JSON.stringify({ folder: folderDocelowy, ...body })
     });
 
     return { status: response.status, json: await response.json() };
@@ -173,7 +174,8 @@ test("B13h: nazwa pliku w odpowiedzi serwera zawiera 8-znakowy identyfikator w n
         assert.equal(result.status, 200, JSON.stringify(result.json));
         assert.equal(produced.length, 1);
         assert.match(produced[0], /^probny tytul B13h \[[0-9a-f]{8}\]\.mp3$/);
-        assert.ok(decodeURIComponent(result.json.downloadUrl).endsWith(`/${produced[0]}`), `adres ${result.json.downloadUrl} nie wskazuje pliku ${produced[0]}`);
+        // UL-2b: zamiast adresu odpowiedz niesie nazwe pliku i pelna sciezke w folderze docelowym
+        assert.deepEqual(result.json.files, [{ name: produced[0], path: path.join(folderDocelowy, produced[0]) }]);
     } finally {
         await new Promise(resolve => server.close(resolve));
     }

@@ -5,6 +5,7 @@
 // (ta sama suma pakietow co w zrodle), indeks (moov) stoi przed danymi (mdat), plik dekoduje sie bez bledow i nie ma dzwieku.
 // Gdy ffmpeg albo ffprobe nie ma, te testy sa pomijane. Odtwarzanie w przegladarce: testy/przegladarka/odtwarzanie.przegladarka.js.
 
+const { folderDocelowy } = require("./folder-docelowy-pomoc");       // UL-2b: zadanie pobrania musi miec pole folder
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -296,7 +297,7 @@ async function postDownload(t, body) {
     const response = await fetch(`http://127.0.0.1:${server.address().port}/api/download`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ folder: folderDocelowy, ...body }),
         signal: AbortSignal.timeout(10000)
     });
 
@@ -320,8 +321,10 @@ test("B12: POST /api/download tryb osobno mp4 bez efektow - ffmpeg rusza raz, ty
         });
 
         assert.equal(status, 200, JSON.stringify(json));
-        assert.equal(json.downloadUrls.length, 2);
-        assert.ok(json.downloadUrls[0].endsWith(".mp4"));
+        // UL-2b: zamiast adresow odpowiedz niesie nazwy plikow i pelne sciezki w folderze docelowym
+        assert.equal(json.files.length, 2);
+        assert.ok(json.files[0].name.endsWith(".mp4"));
+        assert.equal(json.files[0].path, path.join(folderDocelowy, json.files[0].name));
 
         const calls = ffmpegCalls();
 

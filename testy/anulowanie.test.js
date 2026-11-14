@@ -83,8 +83,11 @@ async function startCancelServer(t, hangOn) {
     const logPath = path.join(workDir, "atrapa.log");
     const downloads = path.join(workDir, "downloads");
 
+    const target = path.join(workDir, "cel");       // UL-2b: folder docelowy wysylany w kazdym zadaniu pobrania
+
     fs.copyFileSync(appPath, appCopyPath);
     fs.mkdirSync(path.join(workDir, "public"));
+    fs.mkdirSync(target);
 
     const env = {
         ...process.env,
@@ -102,7 +105,7 @@ async function startCancelServer(t, hangOn) {
         stdio: ["ignore", "pipe", "pipe"]
     });
 
-    const state = { workDir, logPath, downloads, child, output: "", port: 0 };
+    const state = { workDir, logPath, downloads, target, child, output: "", port: 0 };
 
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
@@ -147,7 +150,7 @@ function openDownloadRequest(state, body) {
         response.resume();
     });
     request.on("error", () => {});      // zerwanie polaczenia przez test
-    request.end(JSON.stringify(body));
+    request.end(JSON.stringify({ folder: state.target, ...body }));
 
     return request;
 }
@@ -156,7 +159,7 @@ async function postDownload(state, body) {
     const response = await fetch(`http://127.0.0.1:${state.port}/api/download`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ folder: state.target, ...body }),
         signal: AbortSignal.timeout(15000)
     });
 
@@ -210,6 +213,7 @@ async function assertCancelled(state, hanging, jobId, expectedStarts) {
         [],
         "pliki anulowanego zadania mialy zniknac"
     );
+    assert.deepEqual(fs.readdirSync(state.target), [], "UL-2b: anulowane zadanie nie zostawia niczego w folderze docelowym");
     assert.equal(readStarts(state.logPath).length, expectedStarts, "po anulowaniu wystartowal nastepny program");
     assert.deepEqual(cancelLines(state), [`Zadanie ${jobId} anulowane — strona zamknęła połączenie.`]);
 }
@@ -278,7 +282,8 @@ test("BUG-2: zerwanie polaczenia w trakcie drugiego yt-dlp (tryb osobno) usuwa t
     assert.deepEqual(downloadsFiles(state), []);
 });
 
-test("BUG-2: zadanie zakonczone normalnie nie jest anulowane - odpowiedz przychodzi, pliki zostaja", { timeout: 60000 }, async (t) => {
+// UL-2b: gotowe pliki nie zostaja juz w downloads - sa przenoszone do folderu docelowego z zadania
+test("BUG-2: zadanie zakonczone normalnie nie jest anulowane - odpowiedz przychodzi, pliki zostaja (w folderze docelowym)",{ timeout: 60000 }, async (t) => {
     const state = await startCancelServer(t, 0);
     const { status, json } = await postDownload(state, { url: videoUrl, type: "separate", format: "mp4", resolution: "720", bitrate: "best", experimental: noEffects });
 
@@ -290,8 +295,10 @@ test("BUG-2: zadanie zakonczone normalnie nie jest anulowane - odpowiedz przycho
     await sleep(300);
 
     assert.deepEqual(await activeJobIds(state), []);
-    assert.equal(downloadsFiles(state).length, 2, "gotowe pliki mialy zostac");
-    assert.deepEqual(downloadsFiles(state), json.files.map(file => file.name).sort());
+    assert.equal(fs.readdirSync(state.target).length, 2, "gotowe pliki mialy zostac");
+    assert.deepEqual(fs.readdirSync(state.target).sort(), json.files.map(file => file.name).sort());
+    assert.deepEqual(json.files.map(file => file.path), json.files.map(file => path.join(state.target, file.name)));
+    assert.deepEqual(downloadsFiles(state), [], "po przeniesieniu w folderze roboczym nic nie zostaje");
     assert.deepEqual(cancelLines(state), []);
 });
 

@@ -4,6 +4,7 @@
 // Ostatnia czesc uruchamia prawdziwy ffmpeg z argumentami zlozonymi przez processDownloadedFile na probce z generatora
 // (bez internetu); gdy ffmpeg albo ffprobe nie ma, te testy sa pomijane.
 
+const { folderDocelowy } = require("./folder-docelowy-pomoc");       // UL-2b: zadanie pobrania musi miec pole folder
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -273,7 +274,7 @@ async function postDownload(t, body) {
     const response = await fetch(`http://127.0.0.1:${server.address().port}/api/download`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ folder: folderDocelowy, ...body }),
         signal: AbortSignal.timeout(10000)      // gdyby serwer nie odpowiedzial, test pada zamiast wisiec
     });
 
@@ -298,7 +299,10 @@ for (const sampleRate of ["8000", "16000", "24000", "32000", "default"]) {
 
         assert.equal(ffmpegCalls.length, 1);
         assert.deepEqual(audioBitratePairs(ffmpegCalls[0].args), [["-b:a", expectedBitrate(sampleRate)]]);
-        assert.match(json.downloadUrl, /\.mpeg$/);
+        // UL-2b: zamiast adresu odpowiedz niesie nazwe pliku i pelna sciezke w folderze docelowym
+        assert.equal(json.files.length, 1);
+        assert.match(json.files[0].name, /\.mpeg$/);
+        assert.equal(json.files[0].path, path.join(folderDocelowy, json.files[0].name));
     });
 }
 

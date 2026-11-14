@@ -2,6 +2,7 @@
 // gdy plik zniknie miedzy odczytaniem listy a statSync/unlinkSync albo gdy nie da sie odczytac folderu.
 // Pliki robocze sa w os.tmpdir(); folder downloads programu nie jest ruszany. Nic nie jest pobierane z internetu.
 
+const { folderDocelowy } = require("./folder-docelowy-pomoc");       // UL-2b: zadanie pobrania musi miec pole folder
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -332,7 +333,7 @@ async function postDownload(server, body) {
     const response = await fetch(`http://127.0.0.1:${server.address().port}/api/download`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ folder: folderDocelowy, ...body }),
         signal: AbortSignal.timeout(10000)
     });
 

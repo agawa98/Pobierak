@@ -3,6 +3,7 @@
 // Linia o pominieciu jest skopiowana z prawdziwego uruchomienia yt-dlp 2026.10.26 na trwajacej transmisji YouTube
 // (--match-filter "!is_live & !is_upcoming" --simulate): yt-dlp wypisuje ja na stdout i konczy sie kodem 0.
 
+const { folderDocelowy } = require("./folder-docelowy-pomoc");       // UL-2b: zadanie pobrania musi miec pole folder
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const path = require("node:path");
@@ -279,7 +280,7 @@ test("BUG-1b: /api/download - trwajaca transmisja daje 500 z komunikatem o trans
         const response = await fetch(`http://127.0.0.1:${server.address().port}/api/download`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(body),
+            body: JSON.stringify({ folder: folderDocelowy, ...body }),
             signal: AbortSignal.timeout(10000)
         });
         const json = await response.json();

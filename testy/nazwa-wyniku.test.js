@@ -5,6 +5,7 @@
 // testy nie pisza do folderu downloads. Ostatnia czesc uruchamia prawdziwy ffmpeg na probce z generatora;
 // gdy ffmpeg albo ffprobe nie ma, te testy sa pomijane.
 
+const { folderDocelowy } = require("./folder-docelowy-pomoc");       // UL-2b: zadanie pobrania musi miec pole folder
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -469,7 +470,7 @@ async function postDownload(t, body) {
     const response = await fetch(`http://127.0.0.1:${server.address().port}/api/download`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ folder: folderDocelowy, ...body }),
         signal: AbortSignal.timeout(10000)      // gdyby serwer nie odpowiedzial, test pada zamiast wisiec
     });
 
@@ -489,10 +490,12 @@ test("B13g: POST /api/download audio mp3 + normalizacja - adres bez processed- i
     });
 
     assert.equal(status, 200, JSON.stringify(json));
-    // B2: nazwa pliku w adresie jest zakodowana, wiec przed porownaniem jest odkodowywana
-    assert.match(decodeURIComponent(json.downloadUrl), /^\/downloads\/tytul \[[0-9a-f]{8}\]\.mp3$/);
+    // UL-2b: zamiast adresu odpowiedz niesie nazwe pliku i pelna sciezke w folderze docelowym
+    assert.equal(json.files.length, 1);
+    assert.match(json.files[0].name, /^tytul \[[0-9a-f]{8}\]\.mp3$/);
+    assert.equal(json.files[0].path, path.join(folderDocelowy, json.files[0].name));
 
-    const name = decodeURIComponent(json.downloadUrl).replace("/downloads/", "");
+    const name = json.files[0].name;
     const ffmpegCalls = spawnState.calls.filter(call => call.command === appModule.ffmpegPath);
 
     assert.equal(ffmpegCalls.length, 1);
@@ -511,14 +514,14 @@ test("B13g: POST /api/download tryb osobno mpeg + normalizacja - oba adresy bez 
     });
 
     assert.equal(status, 200, JSON.stringify(json));
-    assert.equal(json.downloadUrls.length, 2);
-    // B2: nazwy plikow w adresach sa zakodowane, wiec przed porownaniem sa odkodowywane
-    assert.match(decodeURIComponent(json.downloadUrls[0]), /^\/downloads\/tytul video \[[0-9a-f]{8}\]\.mpeg$/);
-    assert.match(decodeURIComponent(json.downloadUrls[1]), /^\/downloads\/tytul audio \[[0-9a-f]{8}\]\.mp3$/);
-    assert.equal(json.downloadUrl, json.downloadUrls[1]);
+    // UL-2b: zamiast adresow odpowiedz niesie nazwy plikow i pelne sciezki w folderze docelowym
+    assert.equal(json.files.length, 2);
+    assert.match(json.files[0].name, /^tytul video \[[0-9a-f]{8}\]\.mpeg$/);
+    assert.match(json.files[1].name, /^tytul audio \[[0-9a-f]{8}\]\.mp3$/);
+    assert.deepEqual(json.files.map(file => file.path), json.files.map(file => path.join(folderDocelowy, file.name)));
 
-    const videoName = decodeURIComponent(json.downloadUrls[0]).replace("/downloads/", "");
-    const audioName = decodeURIComponent(json.downloadUrls[1]).replace("/downloads/", "");
+    const videoName = json.files[0].name;
+    const audioName = json.files[1].name;
 
     assert.deepEqual(operations, [
         ["unlink", videoName.replace(/\.mpeg$/, ".mp4")], ["rename", `tmp-${videoName}`, videoName],

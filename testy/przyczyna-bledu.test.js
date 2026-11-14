@@ -3,6 +3,7 @@
 // Czesc testow uzywa atrapy spawn (sterowany stderr i kod wyjscia), czesc uruchamia prawdziwy proces:
 // samego Node (process.execPath) z krotkim skryptem albo nieistniejacy plik w os.tmpdir().
 
+const { folderDocelowy } = require("./folder-docelowy-pomoc");       // UL-2b: zadanie pobrania musi miec pole folder
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -471,7 +472,7 @@ async function postDownload(server, body) {
     const response = await fetch(`http://127.0.0.1:${server.address().port}/api/download`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ folder: folderDocelowy, ...body }),
         signal: AbortSignal.timeout(10000)      // gdyby serwer nie odpowiedzial, test pada zamiast wisiec
     });
 
