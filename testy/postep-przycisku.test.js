@@ -537,3 +537,169 @@ test("U2: linie postepu i ffmpeg dalej trafiaja do tla z logami, w czasie pobier
         ["FFMPEG", ffmpegLine]
     ]);
 });
+
+// ---------- UL-7b: tryb "Film z dzwiekiem" - osobno obraz i dzwiek ----------
+// prawdziwy przebieg yt-dlp (sprawdzony recznie 2026-11-15) dla -f "bv*+ba": linia [info] z formatami "602+233-0",
+// potem przed kazdym strumieniem "[download] Destination: ...", a na koncu [Merger]
+
+const twoStreamsInfo = "[info] jBoKCUKJkiY: Downloading 1 format(s): 602+233-0";
+const oneStreamInfo = "[info] jBoKCUKJkiY: Downloading 1 format(s): 18";
+
+test("UL-7b: Film z dzwiekiem, dwa strumienie - najpierw obraz z procentem, potem dzwiek z procentem", async () => {
+    const page = buildPage();
+    const done = page.start();
+
+    const lines = [
+        "[youtube] jBoKCUKJkiY: Downloading webpage",
+        twoStreamsInfo,
+        "[hlsnative] Downloading m3u8 manifest",
+        "[download] Destination: F:\\downloads\\jBoKCUKJkiY.f602.mp4",
+        progressLine("10.0"),
+        progressLine("55.7"),
+        "[download] 100% of  130.30KiB in 00:00:00 at 308.25KiB/s",
+        "[hlsnative] Downloading m3u8 manifest",
+        "[download] Destination: F:\\downloads\\jBoKCUKJkiY.f233-0.mp4",
+        progressLine("3.2"),
+        progressLine("99.9"),
+        "[download] 100% of  200.02KiB in 00:00:00 at 238.07KiB/s",
+        "[Merger] Merging formats into \"F:\\downloads\\jBoKCUKJkiY.mp4\"",
+        "Deleting original file F:\\downloads\\jBoKCUKJkiY.f602.mp4 (pass -k to keep)"
+    ];
+
+    for (const line of lines) {
+        page.message("YT-DLP VIDEO", line);
+    }
+
+    assert.deepEqual(page.texts, [
+        "Pobieram...",
+        "Pobieram obraz... 10%",
+        "Pobieram obraz... 55%",
+        "Pobieram obraz... 100%",
+        "Pobieram dźwięk... 3%",
+        "Pobieram dźwięk... 99%",
+        "Pobieram dźwięk... 100%"
+    ]);
+
+    page.message("FFMPEG", ffmpegLine);
+    assert.equal(page.text(), "Przetwarzam...");
+
+    page.respond(200, success);
+    await done;
+
+    assert.equal(page.text(), "Pobierz");
+});
+
+test("UL-7b: Film z dzwiekiem, dwa strumienie w jednej wiadomosci - na przycisku ostatni stan", async () => {
+    const page = buildPage();
+    const done = page.start();
+
+    page.message("YT-DLP VIDEO", [
+        twoStreamsInfo,
+        "[download] Destination: a.f137.mp4",
+        progressLine("100"),
+        "[download] Destination: a.f251.webm",
+        progressLine("42.0")
+    ].join("\r\n"));
+
+    assert.equal(page.text(), "Pobieram dźwięk... 42%");
+
+    page.respond(200, success);
+    await done;
+});
+
+test("UL-7b: Film z dzwiekiem, jeden plik z obrazem i dzwiekiem - napis bez obrazu i bez dzwieku", async () => {
+    const page = buildPage();
+    const done = page.start();
+
+    for (const line of [
+        oneStreamInfo,
+        "[download] Destination: F:\\downloads\\jBoKCUKJkiY.mp4",
+        progressLine("20.0"),
+        "[download] 100% of    2.37MiB in 00:00:00 at 18.06MiB/s"
+    ]) {
+        page.message("YT-DLP VIDEO", line);
+    }
+
+    assert.deepEqual(page.texts, ["Pobieram...", "Pobieram... 20%", "Pobieram... 100%"]);
+    assert.ok(page.texts.every(text => !text.includes("dźwięk") && !text.includes("obraz")));
+
+    page.respond(200, success);
+    await done;
+});
+
+test("UL-7b: bez linii [info] z formatami (np. inna wersja yt-dlp) napis zostaje bez nazwy strumienia", async () => {
+    const page = buildPage();
+    const done = page.start();
+
+    for (const line of [
+        "[download] Destination: a.f137.mp4",
+        progressLine("30.0"),
+        "[download] Destination: a.f251.webm",
+        progressLine("40.0")
+    ]) {
+        page.message("YT-DLP VIDEO", line);
+    }
+
+    assert.deepEqual(page.texts, ["Pobieram...", "Pobieram... 30%", "Pobieram... 40%"]);
+
+    page.respond(200, success);
+    await done;
+});
+
+test("UL-7b: procent przed pierwsza linia Destination nie dostaje nazwy strumienia", async () => {
+    const page = buildPage();
+    const done = page.start();
+
+    page.message("YT-DLP VIDEO", twoStreamsInfo);
+    page.message("YT-DLP VIDEO", progressLine("5.0"));
+    assert.equal(page.text(), "Pobieram... 5%");
+
+    page.message("YT-DLP VIDEO", "[download] Destination: a.f602.mp4");
+    page.message("YT-DLP VIDEO", progressLine("6.0"));
+    assert.equal(page.text(), "Pobieram obraz... 6%");
+
+    page.respond(200, success);
+    await done;
+});
+
+test("UL-7b: tryby Tylko audio i osobno maja napisy jak dotad, nawet przy liniach [info] z plusem", async () => {
+    for (const type of ["YT-DLP AUDIO", "YT-DLP VIDEO ONLY", "YT-DLP AUDIO ONLY"]) {
+        const page = buildPage();
+        const done = page.start();
+
+        page.message(type, twoStreamsInfo);
+        page.message(type, "[download] Destination: a.f602.mp4");
+        page.message(type, progressLine("50.0"));
+        page.message(type, "[download] Destination: a.f233-0.mp4");
+        page.message(type, progressLine("70.0"));
+
+        assert.deepEqual(page.texts, ["Pobieram...", "Pobieram... 50%", "Pobieram... 70%"], type);
+
+        page.respond(200, success);
+        await done;
+    }
+});
+
+test("UL-7b: nastepne pobranie zaczyna bez nazwy strumienia z poprzedniego", async () => {
+    const page = buildPage();
+
+    let done = page.start();
+    page.message("YT-DLP VIDEO", twoStreamsInfo);
+    page.message("YT-DLP VIDEO", "[download] Destination: a.f602.mp4");
+    page.message("YT-DLP VIDEO", progressLine("40.0"));
+    assert.equal(page.text(), "Pobieram obraz... 40%");
+    page.respond(500, { success: false, message: "YT-DLP VIDEO: ERROR: przerwane" });
+    await done;
+
+    done = page.start();
+    page.message("YT-DLP VIDEO", progressLine("12.0"));
+    assert.equal(page.text(), "Pobieram... 12%");
+
+    page.message("YT-DLP VIDEO", oneStreamInfo);
+    page.message("YT-DLP VIDEO", "[download] Destination: b.mp4");
+    page.message("YT-DLP VIDEO", progressLine("60.0"));
+    assert.equal(page.text(), "Pobieram... 60%");
+
+    page.respond(200, success);
+    await done;
+});

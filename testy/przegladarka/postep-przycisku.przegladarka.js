@@ -224,3 +224,53 @@ test("U2: po bledzie serwera napis wraca do Pobierz i spoznione linie go nie zmi
         await stopServer(server);
     }
 });
+
+test("UL-7b: Film z dzwiekiem - najpierw Pobieram obraz... NN%, potem Pobieram dźwięk... NN%", async () => {
+    const server = await startServer();
+    const browser = await chromium.launch({ channel: "msedge", headless: true });
+
+    try {
+        const { page, release, hold } = await openPage(browser, server);
+
+        await page.click('.choice:has(input[value="video"])');
+        await clickDownload(page);
+
+        await sendLine(page, "YT-DLP VIDEO", "[info] jBoKCUKJkiY: Downloading 1 format(s): 602+233-0");
+        await sendLine(page, "YT-DLP VIDEO", "[download] Destination: jBoKCUKJkiY.f602.mp4");
+        await sendLine(page, "YT-DLP VIDEO", progressLine("25.0"));
+        assert.equal(await buttonText(page), "Pobieram obraz... 25%");
+
+        await sendLine(page, "YT-DLP VIDEO", "[download] 100% of  130.30KiB in 00:00:00 at 308.25KiB/s");
+        await sendLine(page, "YT-DLP VIDEO", "[download] Destination: jBoKCUKJkiY.f233-0.mp4");
+        await sendLine(page, "YT-DLP VIDEO", progressLine("64.4"));
+        assert.equal(await buttonText(page), "Pobieram dźwięk... 64%");
+
+        await sendLine(page, "FFMPEG", "size=     512KiB time=00:00:21.84 bitrate= 192.0kbits/s speed=43.6x");
+        release();
+        await page.waitForFunction(() => !document.querySelector("#downloadButton").disabled);
+
+        assert.deepEqual(await page.evaluate(() => window.buttonTexts), [
+            "Pobieram...",
+            "Pobieram obraz... 25%",
+            "Pobieram obraz... 100%",
+            "Pobieram dźwięk... 64%",
+            "Przetwarzam...",
+            "Pobierz"
+        ]);
+
+        // jeden plik z obrazem i dzwiekiem razem: bez nazwy strumienia
+        hold();
+        await clickDownload(page);
+        await sendLine(page, "YT-DLP VIDEO", "[info] jBoKCUKJkiY: Downloading 1 format(s): 18");
+        await sendLine(page, "YT-DLP VIDEO", "[download] Destination: jBoKCUKJkiY.mp4");
+        await sendLine(page, "YT-DLP VIDEO", progressLine("80.0"));
+        assert.equal(await buttonText(page), "Pobieram... 80%");
+
+        release();
+        await page.waitForFunction(() => !document.querySelector("#downloadButton").disabled);
+        assert.equal(await buttonText(page), "Pobierz");
+    } finally {
+        await browser.close();
+        await stopServer(server);
+    }
+});

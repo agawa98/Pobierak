@@ -78,7 +78,42 @@ function splitLogLines(message) {
 // flaga: trwa pobieranie. ustawia ją handleDownloadSubmit, a logi z backendu zmieniają wtedy napis na przycisku
 let isDownloading = false;
 
-// postęp na przycisku: linia "[download] NN%" z yt-dlp daje "Pobieram... NN%", a log z ffmpeg daje "Przetwarzam..."
+// tryb "Film z dźwiękiem" (logi YT-DLP VIDEO): yt-dlp wypisuje najpierw
+// "[info] <id>: Downloading 1 format(s): 137+251" - znak "+" znaczy osobne strumienie, pierwszy to obraz (bv*), drugi dźwięk (ba);
+// sam numer formatu (np. "18") to jeden plik z obrazem i dźwiękiem razem.
+// Przed każdym strumieniem pada "[download] Destination: ...", więc licznik tych linii mówi, który strumień się pobiera.
+// videoStreams: null = nie wiadomo albo jeden plik (napis bez nazwy strumienia); videoStreamIndex: -1 = żaden jeszcze nie ruszył
+let videoStreams = null;
+let videoStreamIndex = -1;
+
+// zwraca nazwę pobieranego strumienia ("obraz"/"dźwięk") albo null, gdy napis ma zostać bez nazwy
+function trackVideoStream(type, line) {
+  if (type !== "YT-DLP VIDEO") {
+    return null;
+  }
+
+  const formats = line.match(/^\[info\] .*: Downloading \d+ format\(s\): (\S+)$/);
+
+  if (formats) {
+    const ids = formats[1].split("+");
+
+    videoStreams = ids.length > 1 ? ids.map((_, index) => (index === 0 ? "obraz" : "dźwięk")) : null;
+    videoStreamIndex = -1;
+    return null;
+  }
+
+  if (videoStreams && /^\[download\] Destination: /.test(line)) {
+    videoStreamIndex += 1;
+  }
+
+  return videoStreams && videoStreamIndex >= 0 && videoStreamIndex < videoStreams.length
+    ? videoStreams[videoStreamIndex]
+    : null;
+}
+
+// postęp na przycisku: linia "[download] NN%" z yt-dlp daje "Pobieram... NN%"
+// (w trybie "Film z dźwiękiem" przy osobnych strumieniach "Pobieram obraz... NN%" i "Pobieram dźwięk... NN%"),
+// a log z ffmpeg daje "Przetwarzam..."
 function updateButtonProgress(type, line) {
   if (!isDownloading) {
     return;
@@ -89,6 +124,7 @@ function updateButtonProgress(type, line) {
     return;
   }
 
+  const stream = trackVideoStream(type, line);
   const match = line.match(/\[download\]\s+([\d.]+)%/);
 
   if (!match) {
@@ -101,7 +137,7 @@ function updateButtonProgress(type, line) {
     return;
   }
 
-  buttonText.textContent = `Pobieram... ${percent}%`;
+  buttonText.textContent = stream ? `Pobieram ${stream}... ${percent}%` : `Pobieram... ${percent}%`;
 }
 
 backendLogs.onmessage = (event) => {
@@ -560,6 +596,8 @@ async function handleDownloadSubmit(event) {
   downloadButton.disabled = true;
   buttonLoader.classList.remove("hidden");
   buttonText.textContent = "Pobieram...";
+  videoStreams = null;       // nowe pobieranie nie dziedziczy strumieni z poprzedniego
+  videoStreamIndex = -1;
   isDownloading = true;
 
   const selectedType = getSelectedType();
