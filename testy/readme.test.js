@@ -50,7 +50,7 @@ test("README.md istnieje, jest w UTF-8 bez BOM i po polsku", () => {
 test("README ma wszystkie wymagane sekcje", () => {
     [
         "Wymagania", "Instalacja", "Windows", "macOS", "Linux", "Uruchamianie", "Na czym sprawdzono",
-        "Gdy YouTube przestaje działać", "Ustawienia", "Folder `bin`", "Panel EXPERIMENTAL", "Pobrane pliki", "Licencja"
+        "Gdy YouTube przestaje działać", "Ustawienia", "Folder `bin`", "Panel EXPERIMENTAL", "Linki", "Folder docelowy i pobieranie", "Licencja"
     ].forEach(title => section(title));
 
     // sekcje systemow sa czescia "Instalacja"
@@ -202,15 +202,15 @@ test("zmienne srodowiskowe z README sa tymi, ktore czyta app.js, z tymi samymi w
     assert.ok(appSource.includes('resolveBinary("FFMPEG_PATH", "ffmpeg")'));
 
     assert.ok(tableRow(settings, "`PORT`").includes("| `3000` |"));
-    assert.ok(tableRow(settings, "`HOST`").includes("| `127.0.0.1` |"));
-    assert.ok(tableRow(settings, "`HOST`").includes("`0.0.0.0`"));
+    // HOST zostaje w kodzie, ale README go nie opisuje (decyzja wlasciciela, zadanie GH-2a)
+    assert.ok(!/`HOST`|HOST=/.test(readme), "README nie ma opisywac HOST");
     tableRow(settings, "`YTDLP_PATH`");
     tableRow(settings, "`FFMPEG_PATH`");
 
     // README nie opisuje zmiennych, ktorych program nie czyta
     const described = settings.split(/\r?\n/).filter(line => /^\| `[A-Z_]+` \|/.test(line)).length;
 
-    assert.equal(described, 4);
+    assert.equal(described, 3);
 
     // przyklad dla trzech powlok
     assert.match(settings, /^set PORT=3001$/m);
@@ -263,14 +263,38 @@ test("formaty wymienione w README to formaty przyjmowane przez program", () => {
     assert.ok(intro.includes("Dźwięk i obraz osobno"));
 });
 
-test("czas zycia plikow w downloads zgadza sie z app.js", () => {
-    const files = section("Pobrane pliki");
+test("folder docelowy: opis wyboru folderu, przycisku Pokaz w folderze, rozdzielczosci i anulowania; bez pobierania przez przegladarke", () => {
+    const folder = section("Folder docelowy i pobieranie");
     const { fileMaxAgeMinutes } = require(path.join(projectDir, "app.js"));
     const interval = Number(appSource.match(/const cleanupIntervalMinutes = (\d+);/)[1]);
 
-    assert.ok(files.includes(`usuwane po ${fileMaxAgeMinutes} minutach`));
-    assert.ok(files.includes(`co ${interval} minut`));
-    assert.ok(files.includes("`downloads`"));
+    assert.match(folder, /Bez wybranego folderu pobrać się nie da/);
+    assert.match(folder, /od razu w tym folderze/);
+    assert.ok(folder.includes("Pokaż w folderze"));
+    assert.ok(readFile(path.join("public", "script.js")).includes("Pokaż w folderze"));
+    assert.ok(readFile(path.join("public", "index.html")).includes("Wybierz folder"));
+
+    assert.match(folder, /Domyślnie wybrane jest 1080p/);
+    assert.match(folder, /1440p i 2160p są dostępne tylko dla MKV/);
+    assert.match(folder, /H\.264.*1080p.*„Best”/s);
+    assert.match(folder, /Zamknięcie albo odświeżenie karty.*przerywa/);
+
+    // downloads to tylko miejsce robocze; czasy sprzatania zgadzaja sie z app.js
+    assert.ok(folder.includes(`starsze niż ${fileMaxAgeMinutes} minut`));
+    assert.ok(folder.includes(`co ${interval} minut`));
+
+    // README nie opisuje pobierania pliku przez przegladarke
+    assert.ok(!/folderu pobierania przeglądarki|przeglądarka zapisuje|Link pod przyciskiem/.test(readme));
+    assert.ok(!readme.includes("HOST="));
+});
+
+test("linki: YouTube (pojedynczy film, short, zakonczona transmisja) i Pinterest, reszta odrzucana", () => {
+    const links = section("Linki");
+
+    assert.match(links, /YouTube i Pinterest/);
+    assert.ok(links.includes("youtube.com/shorts/") && links.includes("pinterest.com/pin/"));
+    assert.match(links, /pojedynczy film, short albo zapis zakończonej transmisji/);
+    assert.match(links, /Playlisty, kanały i trwające transmisje są odrzucane/);
 });
 
 test("licencja: MIT z odnosnikiem do pliku LICENSE, zgodna z package.json", () => {

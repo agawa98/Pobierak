@@ -1,13 +1,13 @@
 # Pobierak
 
-Pobierak to mała strona działająca na twoim komputerze, która pobiera filmy i dźwięk z YouTube i innych serwisów obsługiwanych przez [yt-dlp](https://github.com/yt-dlp/yt-dlp). Wklejasz link, wybierasz, co chcesz dostać, klikasz „Pobierz” i plik trafia do folderu pobierania przeglądarki.
+Pobierak to mała strona działająca na twoim komputerze, która pobiera filmy i dźwięk z YouTube i innych serwisów obsługiwanych przez [yt-dlp](https://github.com/yt-dlp/yt-dlp). Wklejasz link, wybierasz folder docelowy i to, co chcesz dostać, klikasz „Pobierz” i plik zapisuje się od razu w wybranym folderze.
 
 ![Strona Pobieraka z otwartym panelem EXPERIMENTAL](docs/zrzut-ekranu.png)
 
 Co potrafi:
 
 - **Tylko audio** — MP3, WAV, M4A albo FLAC, z wyborem bitrate (16–320 kb/s albo najlepszy dostępny).
-- **Film z dźwiękiem** — MP4, MPEG, MJPEG (plik `.avi`) albo MKV, z wyborem rozdzielczości (144p–1080p albo najlepsza dostępna).
+- **Film z dźwiękiem** — MP4, MPEG, MJPEG (plik `.avi`) albo MKV, z wyborem rozdzielczości (144p–1080p, albo najlepsza dostępna; 1440p i 2160p tylko w ostatnim z wymienionych).
 - **Dźwięk i obraz osobno** — dwa pliki: sam obraz i sam dźwięk.
 - **Panel EXPERIMENTAL** — przycinanie i efekty dźwięku (opis [niżej](#panel-experimental)).
 
@@ -177,12 +177,11 @@ Potem uruchom Pobieraka jeszcze raz. Przyczyna błędu jest wypisana pod przycis
 
 ## Ustawienia
 
-Program czyta cztery zmienne środowiskowe. Żadna nie jest wymagana.
+Program czyta trzy zmienne środowiskowe. Żadna nie jest wymagana.
 
 | Zmienna | Domyślnie | Znaczenie |
 |---|---|---|
 | `PORT` | `3000` | Port strony. Zmień, gdy program pisze, że port jest zajęty. Skrypty startowe otwierają przeglądarkę na tym porcie. |
-| `HOST` | `127.0.0.1` | Adres, na którym program nasłuchuje. Domyślnie strona jest dostępna tylko z tego komputera. `0.0.0.0` udostępnia ją innym urządzeniom w sieci domowej — program nie ma hasła, więc nie rób tego w sieci, której nie ufasz. |
 | `YTDLP_PATH` | — | Pełna ścieżka do pliku yt-dlp, jeśli chcesz użyć konkretnego egzemplarza. |
 | `FFMPEG_PATH` | — | Pełna ścieżka do pliku ffmpeg. |
 
@@ -230,9 +229,23 @@ Efekty dźwięku działają w trybach „Tylko audio” i „Film z dźwiękiem�
 
 Pobranie z efektami albo przycięciem trwa dłużej, bo po pobraniu plik jest przetwarzany przez ffmpeg. Przy przycinaniu program pobiera cały film i dopiero potem wycina fragment, a obraz jest kodowany od nowa.
 
-## Pobrane pliki
+## Linki
 
-Pliki trafiają najpierw do folderu `downloads` w folderze programu, a stamtąd przeglądarka zapisuje je w swoim folderze pobierania. **Pliki w `downloads` są usuwane po 30 minutach** (program sprząta przy starcie i potem co 10 minut). Link pod przyciskiem „Pobierz” przestaje wtedy działać, więc jeśli przeglądarka nie zapisała pliku sama, kliknij go od razu.
+Obsługiwane są YouTube i Pinterest, np. `https://www.youtube.com/watch?v=...`, `https://youtu.be/...`, `https://www.youtube.com/shorts/...` albo `https://pin.it/...` i `https://www.pinterest.com/pin/...`.
+
+Z YouTube program przyjmuje tylko pojedynczy film, short albo zapis zakończonej transmisji. Playlisty, kanały i trwające transmisje są odrzucane.
+
+## Folder docelowy i pobieranie
+
+Pod przyciskiem „Pobierz” jest pole **Folder docelowy** z przyciskiem „Wybierz folder…”. Bez wybranego folderu pobrać się nie da. Wybrany folder program zapamiętuje. Gotowy plik zapisuje się od razu w tym folderze; po udanym pobraniu przycisk zmienia się w **„Pokaż w folderze”** i otwiera folder z zaznaczonym plikiem.
+
+Okno wyboru folderu otwiera się na komputerze, na którym działa program, dlatego program przyjmuje żądania tylko z tego samego komputera.
+
+**Rozdzielczości.** Domyślnie wybrane jest 1080p. Pozycje 1440p i 2160p są dostępne tylko dla MKV (przy innym formacie są wyszarzone). W MP4 obraz jest w H.264, który najwyżej ma 1080p, dlatego w MP4 nawet przy „Best” nie dostaniesz więcej niż 1080p.
+
+**Anulowanie.** Zamknięcie albo odświeżenie karty ze stroną przerywa trwające pobieranie.
+
+Folder `downloads` w folderze programu to tylko miejsce robocze na czas pobierania i przetwarzania; gotowych plików się tam nie szuka. Pozostałości starsze niż 30 minut program usuwa przy starcie i potem co 10 minut.
 
 ## Testy
 
