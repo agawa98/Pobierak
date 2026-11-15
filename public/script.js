@@ -165,6 +165,22 @@ function fillFormatSelect(formats) {
   });
 }
 
+// UL-1: 1440p i 2160p sa tylko dla MKV - przy innym formacie wyszarzone, a wybrane wraca do 1080p
+function updateResolutionAvailability() {
+  const isMkv = formatSelect.value === "mkv";
+
+  resolutionSelect.querySelectorAll("option[data-mkv-only]").forEach((option) => {
+    option.disabled = !isMkv;
+  });
+
+  const selectedOption = resolutionSelect.selectedOptions[0];
+
+  if (!isMkv && selectedOption && selectedOption.hasAttribute("data-mkv-only")) {
+    resolutionSelect.value = "1080";
+    addLog("ui", `Rozdzielczość ${selectedOption.textContent} jest tylko dla MKV. Ustawiam 1080p.`);
+  }
+}
+
 function getSelectedType() {
   return document.querySelector('input[name="type"]:checked').value;
 }
@@ -212,6 +228,7 @@ function updateOptions() {
     resolutionSelect.disabled = false;
 
     fillFormatSelect(videoFormats);
+    updateResolutionAvailability();
     addLog("ui", "Wybrano tryb wideo. Pokazuję rozdzielczość i format wideo.");
   }
 
@@ -896,6 +913,8 @@ async function handleFormSubmit(event) {
 typeInputs.forEach((input) => {
   input.addEventListener("change", updateOptions);
 });
+
+formatSelect.addEventListener("change", updateResolutionAvailability);
 
 urlInput.addEventListener("input", validateUrl);
 urlInput.addEventListener("input", resetFileToShow);

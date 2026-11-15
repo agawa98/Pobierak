@@ -18,7 +18,9 @@ const allowedTypes = ["audio", "video", "separate"];
 const allowedAudioFormats = ["mp3", "wav", "m4a", "flac"];
 const allowedVideoFormats = ["mp4", "mpeg", "mjpeg", "mkv"];
 const allowedBitrates = ["16", "32", "64", "128", "256", "320", "best"];
-const allowedResolutions = ["144", "360", "480", "720", "1080", "best"];
+const allowedResolutions = ["144", "360", "480", "720", "1080", "1440", "2160", "best"];
+// rozdzielczosci powyzej 1080p YouTube daje tylko w VP9/AV1, ktorych nie da sie zapisac w mp4 z H.264 - stad tylko mkv
+const mkvOnlyResolutions = ["1440", "2160"];
 const allowedSampleRates = ["8000", "11025", "12000", "16000", "22050", "24000", "32000", "44100", "48000", "default"];
 const allowedChannels = ["mono", "stereo"];
 
@@ -1631,6 +1633,11 @@ function validateRequest(req, res) {
 
         if (!allowedResolutions.includes(resolution)) {
             badRequest(res, "Nieprawidłowa rozdzielczość.");
+            return null;
+        }
+
+        if (mkvOnlyResolutions.includes(resolution) && format !== "mkv") {
+            badRequest(res, "Ta rozdzielczość jest dostępna tylko w formacie MKV.");
             return null;
         }
     }
