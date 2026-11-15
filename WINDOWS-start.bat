@@ -31,7 +31,7 @@ if not "%errorlevel%"=="1" goto odmowa
 for %%P in (%BRAK%) do call :instaluj %%P
 
 echo.
-echo Instalacja zakonczona. Zamknij to okno i uruchom start.bat jeszcze raz -
+echo Instalacja zakonczona. Zamknij to okno i uruchom WINDOWS-start.bat jeszcze raz -
 echo nowe programy sa widoczne dopiero w nowym oknie.
 echo Jesli po ponownym uruchomieniu nadal czegos brakuje, zajrzyj do README.
 pause

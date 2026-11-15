@@ -8,7 +8,7 @@ Krótki opis dla kogoś, kto chce zrozumieć albo zmienić kod. Instrukcja dla u
 - `public/` — strona: `index.html`, `script.js` (formularz, walidacja, postęp, logi w tle), `style.css`, `fonts/`.
 - `downloads/` — folder roboczy. yt-dlp i ffmpeg piszą tutaj; użytkownik nie bierze stąd plików.
 - `testy/` — testy automatyczne (`*.test.js`), testy w przeglądarce (`testy/przegladarka/`), ręczny przegląd z internetem (`testy/przeglad/`).
-- `start.bat` (Windows), `start.command` (macOS), `start.sh` (Linux) — uruchamianie dwuklikiem: sprawdzają `node`, `yt-dlp`, `ffmpeg`, `deno`, za zgodą doinstalowują brakujące, startują serwer i otwierają przeglądarkę.
+- `WINDOWS-start.bat` (Windows), `MACOS-start.command` (macOS), `LINUX-start.sh` (Linux) — uruchamianie dwuklikiem: sprawdzają `node`, `yt-dlp`, `ffmpeg`, `deno`, za zgodą doinstalowują brakujące, startują serwer i otwierają przeglądarkę.
 - `.github/workflows/testy.yml` — `npm test` na Windowsie, macOS i Linuksie.
 
 Programy zewnętrzne (`resolveBinary`): najpierw zmienna `YTDLP_PATH` / `FFMPEG_PATH`, potem folder `bin/` obok `app.js`, na końcu sama nazwa z `PATH`. Port: zmienna `PORT` (domyślnie 3000). Serwer nasłuchuje na `127.0.0.1`.

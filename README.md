@@ -30,9 +30,9 @@ Na Windowsie i macOS skrypt startowy sam sprawdzi, czego brakuje, i zapyta, czy 
 
 1. Na stronie repozytorium kliknij **Code → Download ZIP** (albo wpisz `git clone https://github.com/agawa98/Pobierak.git`).
 2. Rozpakuj ZIP w dowolnym folderze.
-3. Kliknij dwa razy **`start.bat`**.
+3. Kliknij dwa razy **`WINDOWS-start.bat`**.
 4. Jeśli brakuje któregoś z wymaganych programów, skrypt wypisze, których, i zapyta `Zainstalowac? [T/N]`. Naciśnij `T` — programy zainstaluje `winget` (jest częścią Windows 11 i aktualnego Windows 10).
-5. Po instalacji zamknij okno i kliknij **`start.bat`** jeszcze raz. Nowe programy są widoczne dopiero w nowym oknie.
+5. Po instalacji zamknij okno i kliknij **`WINDOWS-start.bat`** jeszcze raz. Nowe programy są widoczne dopiero w nowym oknie.
 6. Strona otworzy się w przeglądarce pod adresem `http://localhost:3000`. Okna z programem nie zamykaj — zamknięcie go wyłącza Pobieraka.
 
 Przy pierwszym uruchomieniu skrypt pobiera też zależności programu (`npm install`); potrzebny jest do tego internet.
@@ -62,14 +62,14 @@ npm start
    ```
 
 2. Na stronie repozytorium kliknij **Code → Download ZIP** i rozpakuj plik (albo `git clone https://github.com/agawa98/Pobierak.git`).
-3. Kliknij dwa razy **`start.command`**.
+3. Kliknij dwa razy **`MACOS-start.command`**.
 4. Jeśli brakuje któregoś z wymaganych programów, skrypt zapyta `Zainstalowac? [T/N]`. Wpisz `T` i naciśnij Enter — programy zainstaluje `brew`, a Pobierak uruchomi się od razu, bez ponownego klikania.
 5. Strona otworzy się w przeglądarce pod adresem `http://localhost:3000`. Okna Terminala nie zamykaj.
 
-**Gdy macOS zablokuje `start.command`.** Plik pobrany w ZIP-ie bywa przy pierwszym dwukliku blokowany (komunikat, że nie można go otworzyć albo że pochodzi od niezidentyfikowanego dewelopera). Wtedy kliknij go prawym przyciskiem i wybierz **Otwórz** (w nowszych wersjach macOS: Ustawienia systemowe → Prywatność i ochrona → **Otwórz mimo to**), albo otwórz Terminal w folderze programu i wpisz:
+**Gdy macOS zablokuje `MACOS-start.command`.** Plik pobrany w ZIP-ie bywa przy pierwszym dwukliku blokowany (komunikat, że nie można go otworzyć albo że pochodzi od niezidentyfikowanego dewelopera). Wtedy kliknij go prawym przyciskiem i wybierz **Otwórz** (w nowszych wersjach macOS: Ustawienia systemowe → Prywatność i ochrona → **Otwórz mimo to**), albo otwórz Terminal w folderze programu i wpisz:
 
 ```
-sh start.command
+sh MACOS-start.command
 ```
 
 **Instalacja ręczna:**
@@ -86,7 +86,7 @@ Dwie ostatnie komendy wpisz w folderze programu.
 
 **Na Linuksie program nie był uruchamiany ani razu** — autor nie ma takiej maszyny. Kod jest ten sam co na Windowsie i macOS, ale komendy poniżej nie zostały sprawdzone. Zgłoszenia błędów są mile widziane.
 
-Skrypt `start.sh` niczego nie instaluje. Jeśli czegoś brakuje, wypisze listę i zakończy pracę.
+Skrypt `LINUX-start.sh` niczego nie instaluje. Jeśli czegoś brakuje, wypisze listę i zakończy pracę.
 
 1. Zainstaluj Node.js i ffmpeg menedżerem pakietów swojej dystrybucji:
 
@@ -120,12 +120,12 @@ Skrypt `start.sh` niczego nie instaluje. Jeśli czegoś brakuje, wypisze listę 
 4. Pobierz program (`git clone https://github.com/agawa98/Pobierak.git` albo ZIP), przejdź do jego folderu i wpisz:
 
    ```
-   ./start.sh
+   ./LINUX-start.sh
    ```
 
-   Jeśli plik pochodzi z ZIP-a i system odmawia uruchomienia, wpisz `sh start.sh`.
+   Jeśli plik pochodzi z ZIP-a i system odmawia uruchomienia, wpisz `sh LINUX-start.sh`.
 
-Dwuklik w `start.sh` zależy od menedżera plików (część otwiera wtedy plik w edytorze), więc pewnym sposobem jest `./start.sh` w terminalu.
+Dwuklik w `LINUX-start.sh` zależy od menedżera plików (część otwiera wtedy plik w edytorze), więc pewnym sposobem jest `./LINUX-start.sh` w terminalu.
 
 **Instalacja ręczna** to kroki 1–3, a potem w folderze programu:
 
@@ -138,9 +138,9 @@ npm start
 
 | System | Dwuklik | W terminalu |
 |---|---|---|
-| Windows | `start.bat` | `start.bat` |
-| macOS | `start.command` | `sh start.command` |
-| Linux | zależy od menedżera plików | `./start.sh` |
+| Windows | `WINDOWS-start.bat` | `WINDOWS-start.bat` |
+| macOS | `MACOS-start.command` | `sh MACOS-start.command` |
+| Linux | zależy od menedżera plików | `./LINUX-start.sh` |
 
 Sposób działający na każdym systemie (w folderze programu):
 

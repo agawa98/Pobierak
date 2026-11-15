@@ -1,9 +1,9 @@
-// Testy zadania D1: uruchamianie dwuklikiem (start.bat, start.command, start.sh, .gitattributes).
+// Testy zadania D1: uruchamianie dwuklikiem (WINDOWS-start.bat, MACOS-start.command, LINUX-start.sh, .gitattributes).
 //
 // Trzy rodzaje sprawdzen:
 // 1. Tresc plikow: konce linii, pierwsza linia, przejscie do wlasnego folderu, identyfikatory winget,
-//    jedyna roznica miedzy start.command i start.sh, .gitattributes, tryb 100755 w repozytorium.
-// 2. start.command i start.sh uruchomione naprawde przez sh na kopii w folderze tymczasowym.
+//    jedyna roznica miedzy MACOS-start.command i LINUX-start.sh, .gitattributes, tryb 100755 w repozytorium.
+// 2. MACOS-start.command i LINUX-start.sh uruchomione naprawde przez sh na kopii w folderze tymczasowym.
 //    Wszystkie programy (node, npm, yt-dlp, ffmpeg, deno, brew, uname, sleep, open, xdg-open) sa atrapami,
 //    ktore zapisuja swoje wywolania do pliku. PATH zawiera tylko folder atrap i folder z dirname/chmod,
 //    wiec test niczego nie instaluje, nie startuje serwera i nie otwiera przegladarki.
@@ -11,7 +11,7 @@
 //    Foldery Homebrew (/opt/homebrew/bin, /usr/local/bin) sa w kopii skryptu podmienione na foldery
 //    w katalogu tymczasowym, zeby prawdziwe programy z tych folderow nie wygraly z atrapami.
 //    Na Windowsie sh jest brane z Git for Windows; gdy go nie ma, te testy sa pomijane.
-// 3. start.bat uruchomiony naprawde przez cmd (tylko na Windowsie) na kopii w folderze tymczasowym,
+// 3. WINDOWS-start.bat uruchomiony naprawde przez cmd (tylko na Windowsie) na kopii w folderze tymczasowym,
 //    z atrapami node.cmd, npm.cmd, winget.cmd itd. Atrapa ping.cmd konczy sie bledem, wiec polecenie
 //    "ping ... && start http://..." nie otwiera przegladarki.
 
@@ -80,7 +80,7 @@ function findShell() {
 
 const shell = findShell();
 const skipSh = shell ? false : "brak sh (na Windowsie potrzebny Git for Windows)";
-const skipBat = isWindows ? false : "start.bat dziala tylko na Windowsie";
+const skipBat = isWindows ? false : "WINDOWS-start.bat dziala tylko na Windowsie";
 
 function slash(text) {
     return text.replace(/\\/g, "/");
@@ -132,7 +132,7 @@ function removeDir(dir) {
 
 test("D1: pliki startowe - tresc", async (t) => {
     await t.test("wszystkie cztery pliki istnieja", () => {
-        for (const name of ["start.bat", "start.command", "start.sh", ".gitattributes"]) {
+        for (const name of ["WINDOWS-start.bat", "MACOS-start.command", "LINUX-start.sh", ".gitattributes"]) {
             assert.ok(fs.existsSync(path.join(projectDir, name)), `brak pliku ${name}`);
         }
     });
@@ -143,7 +143,7 @@ test("D1: pliki startowe - tresc", async (t) => {
         assert.deepEqual(lines, ["*.sh text eol=lf", "*.command text eol=lf", "*.bat text eol=crlf"]);
     });
 
-    for (const name of ["start.command", "start.sh"]) {
+    for (const name of ["MACOS-start.command", "LINUX-start.sh"]) {
         await t.test(`${name}: bez znaku \\r, zaczyna sie od #!/bin/sh`, () => {
             const source = readScript(name);
 
@@ -181,9 +181,9 @@ test("D1: pliki startowe - tresc", async (t) => {
         });
     }
 
-    await t.test("start.command i start.sh roznia sie tylko poleceniem otwierajacym przegladarke", () => {
-        const commandLines = readScript("start.command").split("\n");
-        const shLines = readScript("start.sh").split("\n");
+    await t.test("MACOS-start.command i LINUX-start.sh roznia sie tylko poleceniem otwierajacym przegladarke", () => {
+        const commandLines = readScript("MACOS-start.command").split("\n");
+        const shLines = readScript("LINUX-start.sh").split("\n");
 
         assert.equal(commandLines.length, shLines.length);
 
@@ -201,8 +201,8 @@ test("D1: pliki startowe - tresc", async (t) => {
         ]]);
     });
 
-    await t.test("start.bat: konce linii CRLF, same znaki ASCII", () => {
-        const source = readScript("start.bat");
+    await t.test("WINDOWS-start.bat: konce linii CRLF, same znaki ASCII", () => {
+        const source = readScript("WINDOWS-start.bat");
 
         assert.equal(/(^|[^\r])\n/.test(source), false, "jest linia zakonczona samym \\n");
         assert.equal(/\r(?!\n)/.test(source), false, "jest samotny znak \\r");
@@ -211,15 +211,15 @@ test("D1: pliki startowe - tresc", async (t) => {
         assert.equal(/[^\x09\x0a\x0d\x20-\x7e]/.test(source), false, "plik zawiera znaki spoza ASCII");
     });
 
-    await t.test("start.bat: pierwsze polecenie robocze to cd /d \"%~dp0\"", () => {
-        const commands = readScript("start.bat").split("\r\n").map((line) => line.trim())
+    await t.test("WINDOWS-start.bat: pierwsze polecenie robocze to cd /d \"%~dp0\"", () => {
+        const commands = readScript("WINDOWS-start.bat").split("\r\n").map((line) => line.trim())
             .filter((line) => line && !/^rem\b/i.test(line) && !/^@echo off$/i.test(line) && !/^setlocal\b/i.test(line));
 
         assert.equal(commands[0], 'cd /d "%~dp0"');
     });
 
-    await t.test("start.bat: identyfikatory pakietow winget i brak aktualizacji", () => {
-        const lines = readScript("start.bat").split("\r\n").map((line) => line.trim());
+    await t.test("WINDOWS-start.bat: identyfikatory pakietow winget i brak aktualizacji", () => {
+        const lines = readScript("WINDOWS-start.bat").split("\r\n").map((line) => line.trim());
         const wingetCalls = lines.filter((line) => /\bwinget (install|upgrade|update|import)\b/.test(line));
 
         assert.deepEqual(wingetCalls, [
@@ -230,8 +230,8 @@ test("D1: pliki startowe - tresc", async (t) => {
         ]);
     });
 
-    await t.test("start.bat: czeka na klawisz (pause) przed kazdym zakonczeniem z komunikatem", () => {
-        const lines = readScript("start.bat").split("\r\n").map((line) => line.trim());
+    await t.test("WINDOWS-start.bat: czeka na klawisz (pause) przed kazdym zakonczeniem z komunikatem", () => {
+        const lines = readScript("WINDOWS-start.bat").split("\r\n").map((line) => line.trim());
 
         // linie od podanej (wlacznie) do najblizszego "exit /b"
         function blockFrom(startLine) {
@@ -249,7 +249,7 @@ test("D1: pliki startowe - tresc", async (t) => {
         // po instalacji: komunikat o ponownym uruchomieniu, pause, exit /b 0
         const afterInstall = blockFrom("for %%P in (%BRAK%) do call :instaluj %%P");
 
-        assert.ok(afterInstall.some((line) => /uruchom start\.bat jeszcze raz/.test(line)));
+        assert.ok(afterInstall.some((line) => /uruchom WINDOWS-start.bat jeszcze raz/.test(line)));
         assert.deepEqual(afterInstall.slice(-2), ["pause", "exit /b 0"]);
 
         // po N: pause, exit /b 1
@@ -271,8 +271,8 @@ test("D1: pliki startowe - tresc", async (t) => {
         assert.deepEqual(lines.filter(Boolean).slice(-2), ["call node app.js", "if errorlevel 1 pause"]);
     });
 
-    await t.test("start.bat: przegladarka przez start, potem node app.js", () => {
-        const source = readScript("start.bat");
+    await t.test("WINDOWS-start.bat: przegladarka przez start, potem node app.js", () => {
+        const source = readScript("WINDOWS-start.bat");
         const openIndex = source.indexOf("&& start http://localhost:%PORT%");
         const nodeIndex = source.indexOf("call node app.js");
 
@@ -281,7 +281,7 @@ test("D1: pliki startowe - tresc", async (t) => {
         assert.ok(nodeIndex > openIndex, "node app.js powinien byc po poleceniu otwierajacym przegladarke");
     });
 
-    await t.test("start.command i start.sh maja w repozytorium prawo do uruchamiania (100755)", (t) => {
+    await t.test("MACOS-start.command i LINUX-start.sh maja w repozytorium prawo do uruchamiania (100755)", (t) => {
         const top = spawnSync("git", ["rev-parse", "--show-toplevel"], { cwd: projectDir, encoding: "utf8" });
 
         if (top.error || top.status !== 0 || path.resolve(top.stdout.trim()) !== path.resolve(projectDir)) {
@@ -289,7 +289,7 @@ test("D1: pliki startowe - tresc", async (t) => {
             return;
         }
 
-        const listed = spawnSync("git", ["ls-files", "-s", "start.command", "start.sh"], { cwd: projectDir, encoding: "utf8" });
+        const listed = spawnSync("git", ["ls-files", "-s", "MACOS-start.command", "LINUX-start.sh"], { cwd: projectDir, encoding: "utf8" });
         const lines = listed.stdout.split(/\r?\n/).filter(Boolean);
 
         assert.equal(lines.length, 2, `git ls-files zwrocil: ${listed.stdout}`);
@@ -299,8 +299,8 @@ test("D1: pliki startowe - tresc", async (t) => {
         }
     });
 
-    await t.test("start.command i start.sh maja poprawna skladnie (sh -n)", { skip: skipSh }, () => {
-        for (const name of ["start.command", "start.sh"]) {
+    await t.test("MACOS-start.command i LINUX-start.sh maja poprawna skladnie (sh -n)", { skip: skipSh }, () => {
+        for (const name of ["MACOS-start.command", "LINUX-start.sh"]) {
             const result = spawnSync(shell.sh, ["-n", slash(path.join(projectDir, name))], { encoding: "utf8" });
 
             assert.equal(result.status, 0, `${name}: ${result.stderr}`);
@@ -308,7 +308,7 @@ test("D1: pliki startowe - tresc", async (t) => {
     });
 });
 
-// ---------- 2. start.command i start.sh uruchomione przez sh ----------
+// ---------- 2. MACOS-start.command i LINUX-start.sh uruchomione przez sh ----------
 
 const shFakeHeader = [
     "#!/bin/sh",
@@ -458,8 +458,8 @@ function prepareSh(scriptName, options = {}) {
 }
 
 const shScripts = [
-    { name: "start.command", opener: "open", otherOpener: "xdg-open" },
-    { name: "start.sh", opener: "xdg-open", otherOpener: "open" }
+    { name: "MACOS-start.command", opener: "open", otherOpener: "xdg-open" },
+    { name: "LINUX-start.sh", opener: "xdg-open", otherOpener: "open" }
 ];
 
 for (const script of shScripts) {
@@ -782,7 +782,7 @@ for (const script of shScripts) {
     });
 }
 
-// ---------- 3. start.bat uruchomiony przez cmd ----------
+// ---------- 3. WINDOWS-start.bat uruchomiony przez cmd ----------
 
 function writeCmdFake(fakesDir, name, exitCode = 0) {
     const lines = [
@@ -815,7 +815,7 @@ function prepareBat(options = {}) {
         fs.mkdirSync(dir);
     }
 
-    fs.copyFileSync(path.join(projectDir, "start.bat"), path.join(programDir, "start.bat"));
+    fs.copyFileSync(path.join(projectDir, "WINDOWS-start.bat"), path.join(programDir, "WINDOWS-start.bat"));
     fs.writeFileSync(path.join(programDir, "znacznik.txt"), "folder programu\r\n");
     fs.writeFileSync(path.join(programDir, "app.js"), "// atrapa\r\n");
 
@@ -854,7 +854,7 @@ function prepareBat(options = {}) {
     };
 
     function run(input = "", extraEnv = {}) {
-        const batPath = path.join(programDir, "start.bat");
+        const batPath = path.join(programDir, "WINDOWS-start.bat");
         const result = spawnSync(env.ComSpec, ["/d", "/s", "/c", `""${batPath}""`], {
             cwd: otherDir,
             env: { ...env, ...extraEnv },
@@ -875,7 +875,7 @@ function prepareBat(options = {}) {
     };
 }
 
-test("D1: start.bat uruchomiony przez cmd", { skip: skipBat }, async (t) => {
+test("D1: WINDOWS-start.bat uruchomiony przez cmd", { skip: skipBat }, async (t) => {
     await t.test("wszystko jest - bez pytan, bez npm install, node app.js w folderze programu", () => {
         const env = prepareBat();
 
@@ -1015,7 +1015,7 @@ test("D1: start.bat uruchomiony przez cmd", { skip: skipBat }, async (t) => {
 
             assert.equal(result.status, 0, result.output);
             assert.match(result.output, /Brakuje programow: yt-dlp deno\r?\n/);
-            assert.match(result.output, /uruchom start\.bat jeszcze raz/);
+            assert.match(result.output, /uruchom WINDOWS-start.bat jeszcze raz/);
             sleepMs(300);
             assert.deepEqual(env.log(), [
                 "winget|tu|install --id yt-dlp.yt-dlp -e",

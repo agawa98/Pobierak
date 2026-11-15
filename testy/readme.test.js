@@ -1,6 +1,6 @@
 // Testy zadania G2: README.md.
-// Sprawdzaja, ze README istnieje, ma wymagane czesci i zgadza sie z kodem (identyfikatory winget ze start.bat,
-// komenda Homebrew ze start.command, zmienne srodowiskowe i czas sprzatania z app.js, formaty z app.js),
+// Sprawdzaja, ze README istnieje, ma wymagane czesci i zgadza sie z kodem (identyfikatory winget ze WINDOWS-start.bat,
+// komenda Homebrew ze MACOS-start.command, zmienne srodowiskowe i czas sprzatania z app.js, formaty z app.js),
 // ze zrzut ekranu i pliki z odnosnikow sa w repozytorium oraz ze tabela "na czym sprawdzono" nie obiecuje Linuksa.
 
 const test = require("node:test");
@@ -103,38 +103,38 @@ test("wymagania: Node w wersji z package.json, yt-dlp, ffmpeg, Deno", () => {
     ["[yt-dlp]", "[ffmpeg]", "[Deno]"].forEach(name => tableRow(requirements, name));
 });
 
-test("Windows: kroki ze start.bat i komendy winget z tymi samymi identyfikatorami co w skrypcie", () => {
+test("Windows: kroki ze WINDOWS-start.bat i komendy winget z tymi samymi identyfikatorami co w skrypcie", () => {
     const windows = section("Windows");
-    const idsInScript = [...readFile("start.bat").matchAll(/winget install --id (\S+) -e/g)].map(match => match[1]).sort();
+    const idsInScript = [...readFile("WINDOWS-start.bat").matchAll(/winget install --id (\S+) -e/g)].map(match => match[1]).sort();
     const idsInReadme = [...windows.matchAll(/^winget install --id (\S+) -e$/gm)].map(match => match[1]).sort();
 
     assert.equal(idsInScript.length, 4);
     assert.deepEqual(idsInReadme, idsInScript);
 
     assert.match(windows, /^1\. .*Download ZIP.*git clone/m);
-    assert.match(windows, /^3\. .*`start\.bat`/m);
+    assert.match(windows, /^3\. .*`WINDOWS-start.bat`/m);
     assert.match(windows, /^4\. .*`Zainstalowac\? \[T\/N\]`.*`winget`/m);
-    assert.match(windows, /^5\. .*`start\.bat`\*\* jeszcze raz/m);
+    assert.match(windows, /^5\. .*`WINDOWS-start.bat`\*\* jeszcze raz/m);
     assert.ok(windows.includes("http://localhost:3000"));
     assert.match(windows, /Instalacja ręczna/);
     assert.match(windows, /^npm install\r?\nnpm start$/m);
 
     // pytanie w README jest tym samym tekstem, ktory wypisuje skrypt
-    assert.ok(readFile("start.bat").includes("Zainstalowac? [T/N]"));
+    assert.ok(readFile("WINDOWS-start.bat").includes("Zainstalowac? [T/N]"));
 });
 
-test("macOS: Homebrew z komenda ze start.command, start.command, blokada pliku, instalacja reczna", () => {
+test("macOS: Homebrew z komenda ze MACOS-start.command, MACOS-start.command, blokada pliku, instalacja reczna", () => {
     const mac = section("macOS");
-    const brewCommand = readFile("start.command").match(/\/bin\/bash -c "\$\(curl [^"]+\)"/);
+    const brewCommand = readFile("MACOS-start.command").match(/\/bin\/bash -c "\$\(curl [^"]+\)"/);
 
-    assert.ok(brewCommand, "nie znaleziono komendy Homebrew w start.command");
-    assert.ok(mac.includes(brewCommand[0]), "komenda instalacji Homebrew rozni sie od tej ze start.command");
+    assert.ok(brewCommand, "nie znaleziono komendy Homebrew w MACOS-start.command");
+    assert.ok(mac.includes(brewCommand[0]), "komenda instalacji Homebrew rozni sie od tej ze MACOS-start.command");
     assert.ok(mac.includes("https://brew.sh"));
 
-    assert.match(mac, /^3\. .*`start\.command`/m);
+    assert.match(mac, /^3\. .*`MACOS-start.command`/m);
     assert.match(mac, /^4\. .*`Zainstalowac\? \[T\/N\]`.*`brew`.*od razu/m);
     assert.match(mac, /prawym przyciskiem.*\*\*Otwórz\*\*/);
-    assert.match(mac, /^sh start\.command$/m);
+    assert.match(mac, /^sh MACOS-start.command$/m);
 
     const manual = mac.match(/^brew install (.+)$/m);
 
@@ -143,12 +143,12 @@ test("macOS: Homebrew z komenda ze start.command, start.command, blokada pliku, 
     assert.match(mac, /^npm install\r?\nnpm start$/m);
 });
 
-test("Linux: wprost napisane, ze nieuruchamiany; apt, dnf, pacman; yt-dlp z pliku albo pipx; ./start.sh", () => {
+test("Linux: wprost napisane, ze nieuruchamiany; apt, dnf, pacman; yt-dlp z pliku albo pipx; ./LINUX-start.sh", () => {
     const linux = section("Linux");
 
     assert.match(linux, /Na Linuksie program nie był uruchamiany ani razu/);
     assert.match(linux, /Zgłoszenia błędów są mile widziane/);
-    assert.match(linux, /`start\.sh` niczego nie instaluje/);
+    assert.match(linux, /`LINUX-start.sh` niczego nie instaluje/);
 
     assert.match(linux, /^\s*sudo apt install .*nodejs.*ffmpeg/m);
     assert.match(linux, /^\s*sudo dnf install .*nodejs.*ffmpeg/m);
@@ -157,15 +157,15 @@ test("Linux: wprost napisane, ze nieuruchamiany; apt, dnf, pacman; yt-dlp z plik
     assert.ok(linux.includes("https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp"));
     assert.match(linux, /za stare/);
     assert.match(linux, /deno/i);
-    assert.match(linux, /^\s*\.\/start\.sh$/m);
-    assert.match(linux, /Dwuklik w `start\.sh` zależy od menedżera plików/);
+    assert.match(linux, /^\s*\.\/LINUX-start.sh$/m);
+    assert.match(linux, /Dwuklik w `LINUX-start.sh` zależy od menedżera plików/);
     assert.match(linux, /^npm install\r?\nnpm start$/m);
 });
 
 test("uruchamianie: trzy skrypty istnieja i sa opisane, npm start jako sposob wszedzie", () => {
     const run = section("Uruchamianie");
 
-    [["Windows", "start.bat"], ["macOS", "start.command"], ["Linux", "start.sh"]].forEach(([system, script]) => {
+    [["Windows", "WINDOWS-start.bat"], ["macOS", "MACOS-start.command"], ["Linux", "LINUX-start.sh"]].forEach(([system, script]) => {
         assert.ok(tableRow(run, system).includes(script), `${system}: ${script}`);
         assert.ok(fs.existsSync(path.join(projectDir, script)), `brak pliku ${script}`);
     });
@@ -185,7 +185,7 @@ test("tabela 'na czym sprawdzono' nie opisuje Linuksa ani macOS jako sprawdzonyc
 
 test("aktualizacja yt-dlp: komenda dla kazdego sposobu instalacji", () => {
     const update = section("Gdy YouTube przestaje działać");
-    const wingetId = readFile("start.bat").match(/winget install --id (yt-dlp\.\S+) -e/)[1];
+    const wingetId = readFile("WINDOWS-start.bat").match(/winget install --id (yt-dlp\.\S+) -e/)[1];
 
     assert.equal(wingetId, "yt-dlp.yt-dlp");
     [`winget upgrade --id ${wingetId} -e`, "brew upgrade yt-dlp", "yt-dlp -U", "pipx upgrade yt-dlp"].forEach(command => {

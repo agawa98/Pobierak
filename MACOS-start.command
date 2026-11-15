@@ -1,6 +1,6 @@
 #!/bin/sh
 # Pobierak - uruchamianie dwuklikiem.
-# start.command (macOS) i start.sh (Linux) maja te sama tresc poza poleceniem otwierajacym przegladarke.
+# MACOS-start.command (macOS) i LINUX-start.sh (Linux) maja te sama tresc poza poleceniem otwierajacym przegladarke.
 
 # po dwukliku katalogiem biezacym jest zwykle folder domowy, wiec najpierw przejscie do folderu programu
 cd "$(dirname "$0")" || exit 1
@@ -94,6 +94,6 @@ fi
 ADRES="http://localhost:${PORT:-3000}"
 
 # przegladarka otwiera sie po chwili, zeby serwer zdazyl wystartowac
-(sleep 2; xdg-open "$ADRES") >/dev/null 2>&1 &
+(sleep 2; open "$ADRES") >/dev/null 2>&1 &
 
 exec node app.js
