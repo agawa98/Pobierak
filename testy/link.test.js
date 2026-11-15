@@ -255,3 +255,165 @@ test("BUG-1a: nieczytelny adres dalej daje stary komunikat Nieprawidlowy URL", a
         assert.deepEqual(result.body, { success: false, message: "Nieprawidłowy URL." });
     });
 });
+
+// ---------- UL-8b: reguly linkow Pinteresta (ta sama funkcja, obie kopie) ----------
+
+const NOT_PIN = "To nie jest link do pina. Wklej link do jednego pina z filmem.";
+
+// [link, oczekiwany wynik]: null = przyjety
+const pinterestCases = [
+    // przyjete: jeden pin
+    ["https://pl.pinterest.com/pin/1028720739878379354/", null],
+    ["https://www.pinterest.com/pin/1028720739878379354/", null],
+    ["https://pinterest.com/pin/1028720739878379354", null],
+    ["https://PL.Pinterest.COM/pin/1028720739878379354/", null],
+    ["http://www.pinterest.com/pin/1028720739878379354/", null],
+    ["https://pinterest.co.uk/pin/1028720739878379354/", null],
+    ["https://www.pinterest.co.uk/pin/1028720739878379354/", null],
+    ["https://uk.pinterest.com/pin/1028720739878379354/", null],
+    ["https://www.pinterest.de/pin/1028720739878379354/", null],
+    ["https://www.pinterest.com.au/pin/1028720739878379354/", null],
+    ["https://www.pinterest.com.mx/pin/1028720739878379354/", null],
+    ["https://www.pinterest.ca/pin/1028720739878379354/?mt=login", null],
+    // link z przycisku Udostepnij (UL-8a: pin.it prowadzi na taki adres)
+    ["https://www.pinterest.com/pin/879257527259224138/sent/?invite_code=abc&sender=123", null],
+    ["https://www.pinterest.com/pin/nazwa-pina--1028720739878379354/", null],
+    ["  https://pl.pinterest.com/pin/1028720739878379354/  ", null],
+    // krotki link: nie da sie ocenic po adresie, przyjety (zabezpieczeniem jest --playlist-items 1 z BUG-1b)
+    ["https://pin.it/5RNR5E4PX", null],
+    ["https://pin.it/5RNR5E4PX/", null],
+    ["https://PIN.IT/5RNR5E4PX", null],
+    ["http://pin.it/5RNR5E4PX?utm_source=share", null],
+
+    // odrzucone: tablica
+    ["https://www.pinterest.com/uzytkownik/tablica/", NOT_PIN],
+    ["https://pl.pinterest.com/uzytkownik/tablica", NOT_PIN],
+    ["https://www.pinterest.co.uk/uzytkownik/tablica/?invite_code=abc", NOT_PIN],
+    ["https://www.pinterest.com/uzytkownik/tablica/sekcja/", NOT_PIN],
+    // odrzucone: profil
+    ["https://www.pinterest.com/uzytkownik/", NOT_PIN],
+    ["https://pl.pinterest.com/uzytkownik", NOT_PIN],
+    ["https://www.pinterest.com/uzytkownik/_saved/", NOT_PIN],
+    ["https://www.pinterest.com/uzytkownik/_created/", NOT_PIN],
+    // odrzucone: wyszukiwanie
+    ["https://www.pinterest.com/search/pins/?q=kot", NOT_PIN],
+    ["https://pl.pinterest.com/search/videos/?q=kot&rs=typed", NOT_PIN],
+    ["https://pinterest.co.uk/search/?q=kot", NOT_PIN],
+    // odrzucone: strona glowna i inne strony
+    ["https://www.pinterest.com/", NOT_PIN],
+    ["https://www.pinterest.com", NOT_PIN],
+    ["https://pl.pinterest.com/", NOT_PIN],
+    ["https://pinterest.co.uk", NOT_PIN],
+    ["https://www.pinterest.com/?q=kot", NOT_PIN],
+    ["https://www.pinterest.com/ideas/", NOT_PIN],
+    ["https://www.pinterest.com/today/", NOT_PIN],
+    // /pin bez numeru to nie pin
+    ["https://www.pinterest.com/pin/", NOT_PIN],
+    ["https://www.pinterest.com/pin", NOT_PIN],
+    ["https://www.pinterest.com/pin?id=1028720739878379354", NOT_PIN],
+    ["https://www.pinterest.com/pin//", NOT_PIN],
+    // "pin" w innym miejscu sciezki to nie link do pina
+    ["https://www.pinterest.com/uzytkownik/pin/1028720739878379354/", NOT_PIN],
+    // pin.it bez kodu albo z dodatkowa czescia sciezki
+    ["https://pin.it/", NOT_PIN],
+    ["https://pin.it", NOT_PIN],
+    ["https://pin.it/5RNR5E4PX/cos", NOT_PIN],
+
+    // domeny tylko podobne do Pinteresta: bez oceny (jak inne serwisy, ocenia je yt-dlp)
+    ["https://pinterest.com.example.org/uzytkownik/tablica/", null],
+    ["https://pinterest.com.example.org/", null],
+    ["https://www.pinterest.com.example.org/search/pins/?q=kot", null],
+    ["https://notpinterest.com/uzytkownik/tablica/", null],
+    ["https://pinterest-com.example.org/uzytkownik/tablica/", null],
+    ["https://pinterest.example.com/uzytkownik/tablica/", null],
+    ["https://pin.it.example.org/", null],
+    ["https://xpin.it/", null],
+    ["https://pinterest.com.co.uk.example.org/uzytkownik/", null]
+];
+
+for (const side of sides) {
+    test(`UL-8b: ${side.name} - tabela linkow Pinteresta przyjetych i odrzuconych`, () => {
+        for (const [url, expected] of pinterestCases) {
+            assert.strictEqual(side.check(url), expected, `${JSON.stringify(url)} powinno dac ${JSON.stringify(expected)}`);
+        }
+    });
+}
+
+// kazda koncowka krajowa musi byc rozpoznana jako Pinterest: host spoza listy dalby null (jak inny serwis),
+// wiec sprawdzamy odrzucenie tablicy i strony glownej, a nie tylko przyjecie pina
+const PINTEREST_TLDS = ["com", "co.uk", "uk", "de", "fr", "ch", "jp", "cl", "ca", "it", "nz", "ru", "com.au", "at", "pt", "co.kr",
+    "kr", "es", "com.mx", "mx", "dk", "ph", "th", "com.uy", "co", "nl", "info", "ie", "vn", "com.vn", "ec", "com.ec", "in", "co.in",
+    "pe", "com.pe", "co.at", "hu", "id", "com.py", "tw", "be", "com.bo", "co.nz", "se", "no", "fi", "pl", "com.br", "cz", "gr",
+    "sk", "ro"];
+
+for (const side of sides) {
+    test(`UL-8b: ${side.name} - kazda wersja krajowa Pinteresta jest rozpoznana`, () => {
+        for (const tld of PINTEREST_TLDS) {
+            for (const host of [`pinterest.${tld}`, `www.pinterest.${tld}`, `pl.pinterest.${tld}`]) {
+                assert.strictEqual(side.check(`https://${host}/uzytkownik/tablica/`), NOT_PIN, `${host} tablica`);
+                assert.strictEqual(side.check(`https://${host}/`), NOT_PIN, `${host} strona glowna`);
+                assert.strictEqual(side.check(`https://${host}/pin/1028720739878379354/`), null, `${host} pin`);
+            }
+
+            // koncowka doklejona do obcej domeny to nie Pinterest
+            assert.strictEqual(side.check(`https://pinterest.${tld}.example.org/uzytkownik/tablica/`), null, `pinterest.${tld}.example.org`);
+        }
+    });
+}
+
+test("UL-8b: obie kopie funkcji daja identyczny wynik dla wszystkich polaczen hosta Pinteresta, sciezki i parametrow", () => {
+    const [backend, frontend] = sides;
+    const hosts = ["pinterest.com", "www.pinterest.com", "pl.pinterest.com", "pinterest.co.uk", "www.pinterest.de",
+        "pin.it", "pinterest.com.example.org", "notpinterest.com"];
+    const paths = ["", "/", "/pin", "/pin/", "/pin/123", "/pin/123/", "/pin/123/sent/", "/abc", "/abc/", "/uzytkownik/tablica/",
+        "/search/pins/", "/ideas/", "/uzytkownik/pin/123"];
+    const queries = ["", "?q=kot", "?invite_code=abc", "?v=abc&list=PLx"];
+    let checked = 0;
+
+    for (const host of hosts) {
+        for (const urlPath of paths) {
+            for (const query of queries) {
+                const url = `https://${host}${urlPath}${query}`;
+
+                assert.strictEqual(backend.check(url), frontend.check(url), `rozny wynik dla ${url}`);
+                checked++;
+            }
+        }
+    }
+
+    assert.equal(checked, hosts.length * paths.length * queries.length);
+});
+
+test("UL-8b: /api/download odrzuca tablice, profil, wyszukiwanie i strone glowna Pinteresta kodem 400 z komunikatem", async () => {
+    await withQuietServer(async (server) => {
+        const rejected = pinterestCases.filter(([, expected]) => expected !== null);
+
+        assert.ok(rejected.length > 20);
+
+        for (const [url, expected] of rejected) {
+            const result = await postDownload(server, url);
+
+            assert.equal(result.status, 400, url);
+            assert.deepEqual(result.body, { success: false, message: expected }, url);
+        }
+
+        const board = await postDownload(server, "https://pl.pinterest.com/uzytkownik/tablica/");
+
+        assert.equal(board.status, 400);
+        assert.deepEqual(board.body, { success: false, message: NOT_PIN });
+    });
+});
+
+test("UL-8b: /api/download przepuszcza przez sprawdzanie linku pin, pin z hostem krajowym i pin.it", async () => {
+    await withQuietServer(async (server) => {
+        // bledny czas sprawia, ze serwer odrzuca zadanie dopiero na czasie przycinania - czyli link zostal przyjety
+        for (const url of ["https://pl.pinterest.com/pin/1028720739878379354/", "https://www.pinterest.co.uk/pin/1028720739878379354/",
+            "https://www.pinterest.com/pin/879257527259224138/sent/?invite_code=abc", "https://pin.it/5RNR5E4PX",
+            "https://pinterest.com.example.org/uzytkownik/tablica/"]) {
+            const result = await postDownload(server, url, "1:75");
+
+            assert.equal(result.status, 400, url);
+            assert.deepEqual(result.body, { success: false, message: "Nieprawidłowy format czasu przycinania." }, url);
+        }
+    });
+});

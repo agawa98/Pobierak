@@ -1387,8 +1387,10 @@ async function downloadSeparate(url, resolution, format, jobId, job = null) {
     };
 }
 
-//funkcja sprawdzajaca link YouTube przed pobieraniem: null = link przyjety, tekst = komunikat bledu.
-// przyjmuje tylko link do jednego filmu, odrzuca playlisty, kanaly i inne strony YouTube.
+//funkcja sprawdzajaca link YouTube i Pinterest przed pobieraniem: null = link przyjety, tekst = komunikat bledu.
+// YouTube: przyjmuje tylko link do jednego filmu, odrzuca playlisty, kanaly i inne strony YouTube.
+// Pinterest (UL-8b): przyjmuje /pin/<id> i krotki link pin.it/<kod>, odrzuca tablice, profile, wyszukiwanie i strone glowna.
+// pin.it nie da sie ocenic po adresie (moze prowadzic do tablicy) - zabezpieczeniem jest --playlist-items 1 z BUG-1b.
 // linki z innych serwisow (i takie, ktorych nie da sie odczytac) przepuszcza bez oceny - ocenia je yt-dlp albo reszta walidacji.
 // ta sama funkcja jest w public/script.js - obie kopie maja dawac identyczne wyniki
 function sprawdzLinkYoutube(url) {
@@ -1404,6 +1406,9 @@ function sprawdzLinkYoutube(url) {
     const playlistMessage = "To link do playlisty. Wklej link do jednego filmu.";
     const channelMessage = "To link do kanału. Wklej link do jednego filmu.";
     const notVideoMessage = "To nie jest link do filmu.";
+    const notPinMessage = "To nie jest link do pina. Wklej link do jednego pina z filmem.";
+    // pinterest.com i wersje krajowe (lista koncowek jak w yt-dlp), z jedna poddomena (www, pl, uk...) albo bez
+    const pinterestHost = /^(?:[a-z0-9-]+\.)?pinterest\.(?:com|co\.uk|uk|de|fr|ch|jp|cl|ca|it|nz|ru|com\.au|at|pt|co\.kr|kr|es|com\.mx|mx|dk|ph|th|com\.uy|co|nl|info|ie|vn|com\.vn|ec|com\.ec|in|co\.in|pe|com\.pe|co\.at|hu|id|com\.py|tw|be|com\.bo|co\.nz|se|no|fi|pl|com\.br|cz|gr|sk|ro)$/;
 
     let parsedUrl;
 
@@ -1413,13 +1418,23 @@ function sprawdzLinkYoutube(url) {
         return null;
     }
 
+    // czesci sciezki bez pustych (ukosnik na koncu i podwojne ukosniki nie maja znaczenia)
+    const parts = parsedUrl.pathname.split("/").filter(part => part !== "");
+    const first = parts.length > 0 ? parts[0] : "";
+
+    if (parsedUrl.hostname === "pin.it") {
+        return parts.length === 1 ? null : notPinMessage;
+    }
+
+    if (pinterestHost.test(parsedUrl.hostname)) {
+        // /pin/<id> takze z koncowka, np. /pin/<id>/sent/?invite_code=... z przycisku Udostepnij
+        return first === "pin" && parts.length >= 2 ? null : notPinMessage;
+    }
+
     if (!youtubeHosts.includes(parsedUrl.hostname)) {
         return null;
     }
 
-    // czesci sciezki bez pustych (ukosnik na koncu i podwojne ukosniki nie maja znaczenia)
-    const parts = parsedUrl.pathname.split("/").filter(part => part !== "");
-    const first = parts.length > 0 ? parts[0] : "";
     const videoId = parsedUrl.searchParams.get("v");
     const listId = parsedUrl.searchParams.get("list");
 
