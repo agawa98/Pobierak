@@ -300,10 +300,10 @@ test("B11: bez przycinania - nie ma -ss/-to, film dalej jest kopiowany, wideo os
     assert.deepEqual(result.args.slice(4, -1), ["-ac", "1", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k"]);
     assert.equal(result.args.includes("-ss") || result.args.includes("-to"), false);
 
-    // wideo osobno mkv z webm: kopiowanie
+    // wideo osobno mkv z webm: kopiowanie. UL-8c dodalo -an (plik wideo trybu osobno nie moze miec dzwieku)
     result = await ffmpegArgsFor(t, { generatedFile: "tytul video [abcd1234].webm", ...noTrim, mediaType: "videoOnly", format: "mkv" });
 
-    assert.deepEqual(result.args.slice(4, -1), ["-c", "copy"]);
+    assert.deepEqual(result.args.slice(4, -1), ["-c", "copy", "-an"]);
 
     // wideo osobno mp4: ffmpeg rusza takze bez przycinania (stan sprzed B11), bez -ss/-to i nie z ustawieniami przycinania (crf 20).
     // od zadania B12 to przepakowanie zamiast kodowania crf 23 (szczegolowe testy: przepakowanie-osobno.test.js)

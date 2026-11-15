@@ -18,6 +18,8 @@ const projectDir = path.join(__dirname, "..", "..");
 const downloadsDir = path.join(projectDir, "downloads");
 const videoUrl = "https://www.youtube.com/shorts/jBoKCUKJkiY";
 const fullDuration = 33;        // dlugosc filmu testowego w sekundach
+const pinUrl = "https://pl.pinterest.com/pin/1028720739878379354/";      // UL-8c: pin z filmem (Pinterest)
+const pinDuration = 5;          // dlugosc filmu z pina w sekundach
 const trimStart = "5";
 const trimEnd = "0:12";
 const trimDuration = 7;
@@ -226,6 +228,12 @@ const downloads = [
             { ext: "mp4", video: "h264", audio: null, duration: trimDuration, tolerance: 0.15, maxHeight: 720 },
             { ext: "mp3", video: null, audio: "mp3", duration: trimDuration, tolerance: 0.15, sampleRate: 22050, channels: 1 }
         ]
+    },
+    {
+        // UL-8c: jedno pobranie pina z Pinteresta (film 576x688, ok. 5 s, z dzwiekiem)
+        label: "pin z Pinteresta: film mp4 bez efektow",
+        body: { url: pinUrl, type: "video", bitrate: "best", resolution: "best", format: "mp4", experimental: noEffects },
+        files: [{ ext: "mp4", video: "h264", audio: "aac", duration: pinDuration, tolerance: 1 }]
     }
 ];
 

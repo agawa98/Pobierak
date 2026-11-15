@@ -231,10 +231,10 @@ test("B12: przyciecie wideo osobno mp4 dalej koduje obraz (B11), nie kopiuje i n
 });
 
 test("B12: wideo osobno w mkv, mpeg i mjpeg bez zmian; film mp4 (tryb laczny) bez zmian", async (t) => {
-    // mkv z webm: kopiowanie jak dotad, bez -movflags
+    // mkv z webm: kopiowanie jak dotad, bez -movflags. UL-8c dodalo -an (plik wideo trybu osobno nie moze miec dzwieku)
     let result = await ffmpegArgsFor(t, { generatedFile: "tytul video [abcd1234].webm", mediaType: "videoOnly", format: "mkv" });
 
-    assert.deepEqual(result.args.slice(4, -1), ["-c", "copy"]);
+    assert.deepEqual(result.args.slice(4, -1), ["-c", "copy", "-an"]);
 
     // mkv z mkv: ffmpeg nie rusza
     result = await ffmpegArgsFor(t, { generatedFile: "tytul video [abcd1234].mkv", mediaType: "videoOnly", format: "mkv" });

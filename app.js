@@ -758,6 +758,42 @@ function buildProcessErrorMessage(label, stderrTail, code) {
     return `${label}: ${reason}`;
 }
 
+// UL-8c: komunikaty dla dwoch znanych bledow yt-dlp, pokazywane zamiast surowej linii ERROR:
+const noVideoInPinMessage = "Ten pin nie zawiera filmu.";
+const noAudioMessage = "Ten film nie ma dźwięku.";
+
+// rozpoznaje znany blad yt-dlp po ostatniej linii ERROR: z koncowki stderr. zwraca gotowy komunikat albo null (blad nieznany).
+// sprawdzone na yt-dlp 2026.10.26:
+// - pin ze zdjeciem: "ERROR: [Pinterest] <id>: No video formats found!; please report this issue on ..."
+// - film bez sciezki dzwiekowej przy wyciaganiu dzwieku (-x): "ERROR: Postprocessing: WARNING: unable to obtain file audio codec with ffprobe"
+//   (tylko wywolania z -x, czyli etykiety YT-DLP AUDIO i YT-DLP AUDIO ONLY)
+function recognizeYtDlpError(label, stderrTail) {
+    if (!String(label || "").startsWith("YT-DLP")) {
+        return null;
+    }
+
+    const errorLines = String(stderrTail || "")
+        .split(/\r\n|\n|\r/)
+        .map(line => line.trim())
+        .filter(line => line.startsWith("ERROR:"));
+
+    if (errorLines.length === 0) {
+        return null;
+    }
+
+    const lastError = errorLines[errorLines.length - 1];
+
+    if (/^ERROR:\s*\[Pinterest\]\s.*No video formats found!/.test(lastError)) {
+        return noVideoInPinMessage;
+    }
+
+    if ((label === "YT-DLP AUDIO" || label === "YT-DLP AUDIO ONLY") && /unable to obtain file audio codec/.test(lastError)) {
+        return noAudioMessage;
+    }
+
+    return null;
+}
+
 // komunikat gdy programu w ogole nie da sie uruchomic, bo nie ma takiego pliku (blad ENOENT)
 function buildMissingProgramMessage(label, command) {
     return `${label}: nie znaleziono programu "${command}". Zainstaluj go albo wrzuć do folderu bin (patrz README).`;
@@ -847,6 +883,14 @@ function runProcess(command, args, label, job = null) {
             }
 
             if (code !== 0) {
+                const knownMessage = recognizeYtDlpError(label, errorOutput);
+
+                if (knownMessage) {
+                    // bez pol label i exitCode: to nie awaria yt-dlp, wiec serwer nie dopisuje rady o aktualizacji (UL-4)
+                    reject({ message: knownMessage, error: errorOutput });
+                    return;
+                }
+
                 reject({
                     message: buildProcessErrorMessage(label, errorOutput, code),
                     error: errorOutput,
@@ -962,8 +1006,32 @@ function buildVideoFormat(resolution, format) {                             //po
     return `bv*[height<=${resolution}]+ba/b[height<=${resolution}]`;
 }
 
-//jak wyzej tylko do innego trybu
-function buildVideoOnlyFormat(resolution, format) {
+// czy link prowadzi do Pinteresta (pinterest.<koncowka> z poddomena albo bez, oraz krotki pin.it). uzywane tylko do wyboru formatu
+function isPinterestUrl(url) {
+    let host;
+
+    try {
+        host = new URL(url).hostname.toLowerCase();
+    } catch {
+        return false;
+    }
+
+    return host === "pin.it" || /^(?:[a-z0-9-]+\.)?pinterest\.[a-z]{2,4}(?:\.[a-z]{2})?$/.test(host);
+}
+
+//jak wyzej tylko do innego trybu. url jest opcjonalny: sluzy tylko do rozpoznania Pinteresta
+function buildVideoOnlyFormat(resolution, format, url = "") {
+    // UL-8c: Pinterest podaje najlepszy plik (V_720P, bezposredni MP4 z H.264) bez informacji o kodeku, wiec regula
+    // "[vcodec^=avc1]" go pomijala i brala gorszy strumien HLS. Dla pinow bierzemy najlepszy obraz bez wymogu kodeka,
+    // z pominieciem plikow HEVC (V_HEVC_*), ktorych nie da sie wlozyc do mp4 z H.264. Inne serwisy: bez zmian
+    if (isPinterestUrl(url) && (format === "mp4" || format === "mpeg" || format === "mjpeg")) {
+        if (resolution === "best") {
+            return "bv*[format_id!*=HEVC]/bv*";
+        }
+
+        return `bv*[format_id!*=HEVC][height<=${resolution}]/bv*[height<=${resolution}]`;
+    }
+
     if (format === "mp4" || format === "mpeg" || format === "mjpeg") {
         if (resolution === "best") {                                    //pobieranie filmu i audio osobno
             // na koncu wariant zapasowy bez wymogu kodeka
@@ -1218,7 +1286,8 @@ async function processDownloadedFile(options) {
         } else if (format === "mp4") {
             addVideoCodecArgs(ffmpegArgs, format, mediaType, experimental.sampleRate);
         } else {
-            ffmpegArgs.push("-c", "copy");
+            // UL-8c: -an, bo pobrany "obraz" moze miec tez dzwiek (Pinterest daje pliki z obrazem i dzwiekiem razem)
+            ffmpegArgs.push("-c", "copy", "-an");
         }
 
         ffmpegArgs.push(tempPath);
@@ -1341,7 +1410,7 @@ async function downloadSeparate(url, resolution, format, jobId, job = null) {
     const videoOutputTemplate = buildOutputTemplate(jobId, "video");
     const audioOutputTemplate = buildOutputTemplate(jobId, "audio");
 
-    const videoOnlyFormat = buildVideoOnlyFormat(resolution, format);
+    const videoOnlyFormat = buildVideoOnlyFormat(resolution, format, url);
 
     const videoArgs = [
         ...ytDlpBaseArgs,
@@ -2195,6 +2264,10 @@ module.exports = {
     runProcess,
     buildProcessErrorMessage,
     buildMissingProgramMessage,
+    recognizeYtDlpError,
+    noVideoInPinMessage,
+    noAudioMessage,
+    isPinterestUrl,
     stderrTailLimit,
     PORT,
     HOST,
