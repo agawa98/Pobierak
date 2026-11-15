@@ -141,6 +141,11 @@ function trimLogs() {
 function addLog(type, message) {
   const line = document.createElement("p");
 
+  // UL-4: ostrzeżenie (np. o starym yt-dlp) ma własną klasę - czerwone, pełnym kolorem
+  if (type === "warning") {
+    line.className = "log-warning";
+  }
+
   // typ i treść jako zwykły tekst, żeby znaczniki z logów nie były wykonywane jako HTML
   const typeLabel = document.createElement("span");
   typeLabel.textContent = `[${type}]`;

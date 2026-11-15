@@ -68,6 +68,12 @@ body {
   color: rgba(167, 139, 250, 0.7);
 }
 
+/* UL-4: ostrzezenie z serwera (np. stary yt-dlp) - czerwone, pelnym kolorem, nie przygaszone jak zwykle logi */
+.background-terminal-body p.log-warning,
+.background-terminal-body p.log-warning span {
+  color: rgb(239, 68, 68);
+}
+
 #terminalLogs {
   overflow-y: auto;
   overflow-x: hidden;

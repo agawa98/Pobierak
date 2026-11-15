@@ -128,6 +128,11 @@ app.get("/api/logs", (req, res) => {
 
     res.write(`data: ${JSON.stringify({ type: "system", message: "Połączono z logami backendu." })}\n\n`);
 
+    // UL-4: ostrzezenie o starym yt-dlp zaraz po powitaniu (ustala je reportPrograms przy starcie)
+    if (ytDlpWarning) {
+        res.write(`data: ${JSON.stringify({ type: "warning", message: ytDlpWarning })}\n\n`);
+    }
+
     logClients.push(res);
 
     req.on("close", () => {
@@ -844,7 +849,9 @@ function runProcess(command, args, label, job = null) {
             if (code !== 0) {
                 reject({
                     message: buildProcessErrorMessage(label, errorOutput, code),
-                    error: errorOutput
+                    error: errorOutput,
+                    label,              // UL-4: po bledzie yt-dlp serwer przypomina o aktualizacji (isYtDlpExitError)
+                    exitCode: code
                 });
                 return;
             }
@@ -1869,9 +1876,18 @@ app.post("/api/download", onlyLocalRequests, async (req, res) => {
 
         console.error(error);
 
+        let message = error.message || "Wystąpił błąd podczas pobierania.";
+
+        // UL-4: yt-dlp zakonczyl prace bledem, a jego wersja jest stara: ostrzezenie jeszcze raz (ostatnia linia w tle)
+        // i zdanie o aktualizacji w komunikacie pod przyciskiem
+        if (ytDlpWarning && isYtDlpExitError(error)) {
+            sendLogToClients("warning", ytDlpWarning);
+            message += buildYtDlpUpdateSentence();
+        }
+
         return res.status(500).json({
             success: false,
-            message: error.message || "Wystąpił błąd podczas pobierania.",
+            message,
             error: error.error || error.message || String(error)
         });
     } finally {
@@ -1971,6 +1987,108 @@ function buildProgramReport(name, command, result, platform = process.platform) 
     return [problem, buildInstallHint(platform)];
 }
 
+// UL-4: numer wersji yt-dlp to data wydania (np. 2026.10.26, nocne wydania maja jeszcze czwarta czesc: 2026.10.26.232946).
+// starsza niz tyle dni wersja dostaje ostrzezenie - YouTube czesto cos zmienia i stare yt-dlp przestaje pobierac
+const ytDlpMaxAgeDays = 90;
+
+// data z numeru wersji jako { year, month, day } albo null, gdy numer nie jest data (inny format = bez ostrzezenia)
+function parseYtDlpVersionDate(version) {
+    const match = String(version || "").trim().match(/^(\d{4})\.(\d{2})\.(\d{2})(?:\.\d+)?$/);
+
+    if (!match) {
+        return null;
+    }
+
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    const date = new Date(Date.UTC(year, month - 1, day));
+
+    // np. 2026.02.31 - Date przesunalby to na marzec, a to nie jest prawdziwa data
+    if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) {
+        return null;
+    }
+
+    return { year, month, day };
+}
+
+// ile dni minelo od daty wersji do "dzisiaj" (dzien z lokalnego kalendarza; godzina nie ma znaczenia)
+function ytDlpAgeDays(versionDate, today) {
+    const versionDay = Date.UTC(versionDate.year, versionDate.month - 1, versionDate.day);
+    const todayDay = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate());
+
+    return Math.round((todayDay - versionDay) / (24 * 60 * 60 * 1000));
+}
+
+// komenda aktualizacji zgodna z tym, jak README i skrypty startowe kaza instalowac yt-dlp na danym systemie
+function buildYtDlpUpdateCommand(platform = process.platform) {
+    if (platform === "win32") {
+        return "winget upgrade --id yt-dlp.yt-dlp -e";
+    }
+
+    if (platform === "darwin") {
+        return "brew upgrade yt-dlp";
+    }
+
+    // Linux: README kaze brac oficjalny plik do folderu systemowego (stad sudo) albo pipx
+    return "sudo yt-dlp -U (oficjalny plik) albo pipx upgrade yt-dlp (pipx)";
+}
+
+// tresc ostrzezenia albo null, gdy wersja jest swieza (90 dni i mniej) albo jej numer nie jest data
+function buildYtDlpAgeWarning(version, today = new Date(), platform = process.platform) {
+    const versionDate = parseYtDlpVersionDate(version);
+
+    if (!versionDate) {
+        return null;
+    }
+
+    const days = ytDlpAgeDays(versionDate, today);
+
+    if (days <= ytDlpMaxAgeDays) {
+        return null;
+    }
+
+    const dateText = [versionDate.year, versionDate.month, versionDate.day]
+        .map(part => String(part).padStart(2, "0"))
+        .join(".");
+
+    return `UWAGA: yt-dlp jest z ${dateText} (${days} dni). Jeśli pobieranie nie działa, zaktualizuj: ${buildYtDlpUpdateCommand(platform)}`;
+}
+
+// czerwony kolor kodami ANSI tylko w terminalu; przekierowane wyjscie (plik, potok) dostaje sam tekst
+function colorRedForConsole(text, isTerminal = Boolean(process.stdout.isTTY)) {
+    return isTerminal ? `\x1b[31m${text}\x1b[0m` : text;
+}
+
+// ostrzezenie o starym yt-dlp ustalone przy starcie (null = brak). wysylane kazdej stronie przy polaczeniu z logami
+// i po kazdym pobraniu, ktore yt-dlp zakonczyl bledem
+let ytDlpWarning = null;
+let ytDlpUpdateCommand = null;
+
+// ustawia ostrzezenie dla odczytanej wersji yt-dlp i je zwraca (null = brak). version null = wersji nie udalo sie odczytac
+function setYtDlpVersion(version, today = new Date(), platform = process.platform) {
+    ytDlpWarning = version === null ? null : buildYtDlpAgeWarning(version, today, platform);
+    ytDlpUpdateCommand = ytDlpWarning ? buildYtDlpUpdateCommand(platform) : null;
+
+    return ytDlpWarning;
+}
+
+function getYtDlpWarning() {
+    return ytDlpWarning;
+}
+
+// blad zakonczonego procesu yt-dlp (kod wyjscia rozny od 0) - nie brak programu, nie ffmpeg, nie anulowanie
+function isYtDlpExitError(error) {
+    return Boolean(error) && typeof error.exitCode === "number" && String(error.label || "").startsWith("YT-DLP");
+}
+
+// zdanie dopisywane do komunikatu pod przyciskiem po bledzie yt-dlp, gdy wersja jest stara ("" gdy swieza)
+function buildYtDlpUpdateSentence() {
+    return ytDlpUpdateCommand
+        ? ` Twój yt-dlp jest stary - zaktualizuj go (${ytDlpUpdateCommand}) i spróbuj ponownie.`
+        : "";
+}
+
 // sprawdza przy starcie yt-dlp i ffmpeg i wypisuje ich wersje albo informacje, ktorego brakuje. brak programu nie zatrzymuje serwera
 async function reportPrograms() {
     const programs = [
@@ -1982,6 +2100,15 @@ async function reportPrograms() {
 
     programs.forEach((program, index) => {
         buildProgramReport(program.name, program.command, results[index]).forEach(line => console.log(line));
+
+        // UL-4: pod linia z wersja yt-dlp czerwone ostrzezenie, gdy wersja ma ponad 90 dni
+        if (program.name === "yt-dlp") {
+            const warning = setYtDlpVersion(results[index].ok ? results[index].version : null);
+
+            if (warning) {
+                console.log(colorRedForConsole(warning));
+            }
+        }
     });
 }
 
@@ -2061,6 +2188,15 @@ module.exports = {
     checkProgramVersion,
     buildProgramReport,
     reportPrograms,
+    ytDlpMaxAgeDays,
+    parseYtDlpVersionDate,
+    buildYtDlpUpdateCommand,
+    buildYtDlpAgeWarning,
+    colorRedForConsole,
+    setYtDlpVersion,
+    getYtDlpWarning,
+    isYtDlpExitError,
+    buildYtDlpUpdateSentence,
     buildPortInUseMessage,
     startServer,
     getJobId,
