@@ -434,6 +434,119 @@ button[type="submit"]:hover {
   color: #ffffff;
 }
 
+.status-box .status-file {
+  margin-top: 8px;
+  font-weight: 400;
+  color: #bfdbfe;
+  overflow-wrap: anywhere;
+}
+
+/* folder docelowy pod przyciskiem "Pobierz" (zadanie UL-2c) */
+.folder-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.folder-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.folder-line {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.4;
+  color: #cbd5e1;
+  overflow-wrap: anywhere;
+}
+
+.folder-label {
+  font-weight: 700;
+  color: #f8fafc;
+}
+
+.folder-path {
+  color: #bfdbfe;
+}
+
+.folder-path.is-empty {
+  color: #94a3b8;
+  font-style: italic;
+}
+
+.folder-block.is-error .folder-path {
+  color: #fca5a5;
+}
+
+.folder-button {
+  flex: 0 0 auto;
+  padding: 9px 14px;
+  border: 1px solid rgba(167, 139, 250, 0.55);
+  border-radius: 12px;
+  background: rgba(139, 92, 246, 0.18);
+  color: #f8fafc;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: 0.2s;
+}
+
+.folder-button:hover {
+  background: rgba(139, 92, 246, 0.32);
+}
+
+.folder-button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.folder-manual {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.folder-manual label {
+  font-size: 14px;
+}
+
+.folder-manual-row {
+  display: flex;
+  gap: 10px;
+}
+
+.folder-manual-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 9px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 12px;
+  font-size: 14px;
+  color: #0f172a;
+  background: #ffffff;
+  outline: none;
+}
+
+.folder-manual-row input:focus {
+  border-color: #a78bfa;
+  box-shadow: 0 0 0 4px rgba(167, 139, 250, 0.25);
+}
+
+/* podpowiedź pod wierszem folderu jest szara; na czerwono tylko błąd */
+.folder-block .validation-message {
+  color: #94a3b8;
+}
+
+.folder-block .validation-message.is-error {
+  color: #fca5a5;
+}
+
 .status-box.is-error {
   border-color: rgba(248, 113, 113, 0.85);
   color: #fecaca;

@@ -108,6 +108,9 @@ function buildPage({ trimStart = "", trimEnd = "" } = {}) {
         getSelectedBitrate: () => "best",
         // sprawdzanie linku (zadanie BUG-1a) ma wlasne testy w link.test.js; tu link jest zawsze przyjety
         validateUrl: () => true,
+        // folder docelowy (zadanie UL-2c) ma wlasne testy w folder-strona.test.js; tu folder jest zawsze wybrany
+        getTargetFolder: () => "C:\\Pobrane",
+        isFolderError: () => false,
         getExperimentalOptions: () => ({ trimStart, trimEnd }),
         fetch: () => new Promise((resolve, reject) => { pending.push({ resolve, reject }); })
     };

@@ -28,6 +28,8 @@ function stopServer(server) {
 // otwiera strone. zadania do /api/download nie trafiaja do programu: czekaja na release() i dostaja odpowiedz testowa
 async function openPage(browser, server, { status = 200, body = { success: true, message: "Pobrano (odpowiedz testowa)." } } = {}) {
     const page = await browser.newPage();
+    // UL-2c: bez wybranego folderu przycisk "Pobierz" jest wylaczony; folder jest zapamietany jak po wyborze
+    await page.addInitScript(() => localStorage.setItem("pobierak.folderDocelowy", "C:\\Pobrane"));
     const baseUrl = `http://127.0.0.1:${server.address().port}`;
     let release;
     let released = new Promise((resolve) => { release = resolve; });

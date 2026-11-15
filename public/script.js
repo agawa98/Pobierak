@@ -37,6 +37,14 @@ const trimValidation = document.querySelector("#trimValidation");
 const urlInput = document.querySelector("#url");
 const urlValidation = document.querySelector("#urlValidation");
 
+const folderBlock = document.querySelector("#folderBlock");
+const folderPath = document.querySelector("#folderPath");
+const chooseFolderButton = document.querySelector("#chooseFolderButton");
+const folderManual = document.querySelector("#folderManual");
+const folderManualInput = document.querySelector("#folderManualInput");
+const folderManualSave = document.querySelector("#folderManualSave");
+const folderMessage = document.querySelector("#folderMessage");
+
 const audioFormats = ["mp3", "wav", "m4a", "flac"];
 const videoFormats = ["mp4", "mpeg", "mjpeg", "mkv"];
 const bitrateValues = ["16", "32", "64", "128", "256", "320", "best"];
@@ -471,21 +479,25 @@ function showStatusError(message) {
   statusBox.classList.remove("hidden");
 }
 
-// pokazuje "Gotowe" i link do każdego pliku z odpowiedzi serwera ({ name, url })
+// pokazuje "Gotowe — zapisano:" i pełną ścieżkę każdego pliku z odpowiedzi serwera ({ name, path }).
+// pliki są już w folderze docelowym, więc w polu nie ma linków - sam tekst
 function showStatusSuccess(files) {
   clearStatus();
 
   const title = document.createElement("p");
-  title.textContent = "Gotowe";
+  title.textContent = "Gotowe — zapisano:";
   statusBox.appendChild(title);
 
   if (Array.isArray(files)) {
     files.forEach((file) => {
-      const link = document.createElement("a");
-      link.textContent = file.name;
-      link.href = file.url;
-      link.download = file.name;
-      statusBox.appendChild(link);
+      if (!file || typeof file !== "object") {
+        return;
+      }
+
+      const line = document.createElement("p");
+      line.className = "status-file";
+      line.textContent = String(file.path || file.name || "");
+      statusBox.appendChild(line);
     });
   }
 
@@ -509,6 +521,15 @@ async function handleDownloadSubmit(event) {
     return;
   }
 
+  // bez folderu przycisk jest wyłączony; to sprawdzenie zostaje na wypadek wysłania formularza inną drogą
+  const folder = getTargetFolder();
+
+  if (!folder) {
+    addLog("error", noFolderMessage);
+    showStatusError(noFolderMessage);
+    return;
+  }
+
   clearStatus();
 
   downloadButton.disabled = true;
@@ -524,6 +545,7 @@ async function handleDownloadSubmit(event) {
     bitrate: selectedType === "audio" ? getSelectedBitrate() : null,
     resolution: selectedType === "audio" ? null : resolutionSelect.value,
     format: formatSelect.value,
+    folder,
     experimental: getExperimentalOptions()
   };
 
@@ -570,35 +592,26 @@ async function handleDownloadSubmit(event) {
 
       addLog("error", errorMessage);
       showStatusError(errorMessage);
+
+      // serwer odrzucił folder (nie istnieje, nie da się w nim zapisać...): wiersz folderu prosi o wybór od nowa
+      if (isFolderError(response.status, errorMessage)) {
+        markFolderError();
+      }
+
       return;
     }
 
     addLog("success", result.message);
     showStatusSuccess(result.files);
 
-    if (result.downloadUrls && Array.isArray(result.downloadUrls)) {
-        addLog("file", "Rozpoczynam automatyczne pobieranie kilku plików...");
-
-        result.downloadUrls.forEach((url, index) => {
-            setTimeout(() => {
-                const downloadAnchor = document.createElement("a");
-                downloadAnchor.href = url;
-                downloadAnchor.download = "";
-                document.body.appendChild(downloadAnchor);
-                downloadAnchor.click();
-                document.body.removeChild(downloadAnchor);
-            }, index * 700);
-        });
-    } else if (result.downloadUrl) {
-        addLog("file", "Rozpoczynam automatyczne pobieranie pliku...");
-
-        const downloadAnchor = document.createElement("a");
-        downloadAnchor.href = result.downloadUrl;
-        downloadAnchor.download = "";
-        document.body.appendChild(downloadAnchor);
-        downloadAnchor.click();
-        document.body.removeChild(downloadAnchor);
+    if (Array.isArray(result.files)) {
+      result.files.forEach((file) => {
+        if (file && file.path) {
+          addLog("file", `Zapisano: ${file.path}`);
+        }
+      });
     }
+
     addLog("data", JSON.stringify(result.receivedData));
 
   } finally {
@@ -607,6 +620,167 @@ async function handleDownloadSubmit(event) {
     buttonLoader.classList.add("hidden");
     buttonText.textContent = "Pobierz";
  }
+}
+
+// ---------- folder docelowy (zadanie UL-2c) ----------
+
+// klucz w localStorage, pod którym strona pamięta wybrany folder
+const folderStorageKey = "pobierak.folderDocelowy";
+const noFolderMessage = "Najpierw wybierz folder docelowy";
+
+// wybrany folder docelowy (pełna ścieżka) albo "" - folder nie jest ustawiony
+let targetFolder = "";
+
+function getTargetFolder() {
+  return targetFolder;
+}
+
+// odczyt zapamiętanego folderu. localStorage może być niedostępny (np. zablokowany w przeglądarce) - wtedy ""
+function readSavedFolder() {
+  try {
+    const saved = localStorage.getItem(folderStorageKey);
+
+    return typeof saved === "string" ? saved.trim() : "";
+  } catch (error) {
+    console.error(error);
+    return "";
+  }
+}
+
+function saveFolder(folder) {
+  try {
+    localStorage.setItem(folderStorageKey, folder);
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+// komunikat pod wierszem folderu; isError = czerwony
+function setFolderMessage(message, isError) {
+  folderMessage.textContent = message;
+  folderMessage.classList.toggle("is-error", Boolean(isError));
+}
+
+// pokazuje wybrany folder i włącza albo wyłącza przycisk "Pobierz" (w trakcie pobierania przycisk zostaje wyłączony)
+function updateFolderView() {
+  folderPath.textContent = targetFolder || "nie wybrano";
+  folderPath.classList.toggle("is-empty", !targetFolder);
+
+  if (targetFolder) {
+    downloadButton.removeAttribute("title");
+
+    // podpowiedź "najpierw wybierz" (np. ta z index.html przy starcie strony) znika, inne komunikaty zostają
+    if (folderMessage.textContent === noFolderMessage) {
+      setFolderMessage("", false);
+    }
+  } else {
+    downloadButton.setAttribute("title", noFolderMessage);
+    setFolderMessage(noFolderMessage, false);
+  }
+
+  if (!isDownloading) {
+    downloadButton.disabled = !targetFolder;
+  }
+}
+
+// ustawia i zapamiętuje folder docelowy
+function setTargetFolder(folder) {
+  targetFolder = folder;
+  saveFolder(folder);
+
+  folderBlock.classList.remove("is-error");
+  folderManual.classList.add("hidden");
+  setFolderMessage("", false);
+  updateFolderView();
+
+  addLog("ui", `Folder docelowy: ${folder}`);
+}
+
+// pokazuje pole do ręcznego wklejenia ścieżki (gdy serwer nie umie otworzyć okna wyboru folderu)
+function showManualFolder(message) {
+  folderManual.classList.remove("hidden");
+  folderManualInput.value = targetFolder;
+  setFolderMessage(message, true);
+  folderManualInput.focus();
+}
+
+// zapis ścieżki z pola ręcznego. czy to istniejący folder, sprawdza serwer przy pobieraniu
+function handleManualFolderSave() {
+  const folder = folderManualInput.value.trim();
+
+  if (!folder) {
+    setFolderMessage("Wklej pełną ścieżkę folderu.", true);
+    return;
+  }
+
+  setTargetFolder(folder);
+}
+
+// czy błąd z /api/download dotyczy folderu: wszystkie komunikaty serwera o folderze docelowym zawierają słowo "folder"
+function isFolderError(status, message) {
+  return status === 400 && /folder/i.test(String(message));
+}
+
+// po odrzuceniu folderu przez serwer: wiersz folderu na czerwono i prośba o wybór od nowa
+function markFolderError() {
+  folderBlock.classList.add("is-error");
+  setFolderMessage("Wybierz folder docelowy od nowa.", true);
+}
+
+// "Wybierz folder…": serwer otwiera systemowe okno (POST /api/folder/wybierz, zadanie UL-2a).
+// odpowiedź: result "selected" (z folder), "cancelled" albo "unavailable" (z message)
+async function handleChooseFolder() {
+  chooseFolderButton.disabled = true;
+  addLog("ui", "Otwieram okno wyboru folderu...");
+
+  try {
+    let response;
+
+    try {
+      response = await fetch("/api/folder/wybierz", { method: "POST" });
+    } catch (error) {
+      console.error(error);
+      addLog("error", "Nie udało się połączyć z backendem.");
+      setFolderMessage("Nie udało się połączyć z backendem.", true);
+      return;
+    }
+
+    let result = null;
+
+    try {
+      result = await response.json();
+    } catch (error) {
+      console.error(error);
+    }
+
+    if (!response.ok || result === null || typeof result !== "object") {
+      const message = result !== null && typeof result === "object" && result.message
+        ? String(result.message)
+        : `Serwer zwrócił nieoczekiwaną odpowiedź (HTTP ${response.status}).`;
+
+      addLog("error", message);
+      setFolderMessage(message, true);
+      return;
+    }
+
+    if (result.result === "selected" && typeof result.folder === "string" && result.folder.trim() !== "") {
+      setTargetFolder(result.folder.trim());
+      return;
+    }
+
+    if (result.result === "cancelled") {
+      addLog("ui", "Okno wyboru folderu zamknięte bez wyboru.");
+      return;
+    }
+
+    // "unavailable" (i każda inna odpowiedź): okna nie da się otworzyć, zostaje ręczne wklejenie ścieżki
+    const reason = result.message ? String(result.message) : "Nie da się otworzyć okna wyboru folderu.";
+
+    addLog("error", reason);
+    showManualFolder(`${reason} Wklej ścieżkę folderu ręcznie.`);
+  } finally {
+    chooseFolderButton.disabled = false;
+  }
 }
 
 function toggleExperimentalPanel() {
@@ -632,9 +806,23 @@ trimEndInput.addEventListener("input", validateTrim);
 experimentalToggle.addEventListener("click", toggleExperimentalPanel);
 downloadForm.addEventListener("submit", handleDownloadSubmit);
 
+chooseFolderButton.addEventListener("click", handleChooseFolder);
+folderManualSave.addEventListener("click", handleManualFolderSave);
+
+// Enter w polu ścieżki zapisuje ścieżkę zamiast wysyłać formularz pobierania
+folderManualInput.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    handleManualFolderSave();
+  }
+});
+
 addLog("system", "Pobierak uruchomiony.");
 addLog("info", "Czekam na link do filmu...");
 
 setupRotaryKnob(bitcrushKnob, bitcrushDial, bitcrushValue);
 setupRotaryKnob(sampleRateKnob, sampleRateDial, sampleRateValue, sampleRateValues);
 updateOptions();
+
+targetFolder = readSavedFolder();
+updateFolderView();

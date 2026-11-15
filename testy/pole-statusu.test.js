@@ -118,7 +118,8 @@ function findAll(element, tagName) {
 }
 
 // buduje strone-atrape i zwraca handleDownloadSubmit razem z tym, co test chce obejrzec
-function buildPage({ trimStart = "", trimEnd = "", type = "audio", fetchImpl } = {}) {
+function buildPage({ trimStart = "", trimEnd = "", type = "audio", fetchImpl, folder = "C:\\Pobrane\\Filmy" } = {}) {
+    const folderErrors = [];  // wywolania markFolderError (UL-2c)
     const logs = [];
     const fetchCalls = [];
     const created = [];       // kazdy element utworzony przez document.createElement
@@ -167,6 +168,9 @@ function buildPage({ trimStart = "", trimEnd = "", type = "audio", fetchImpl } =
         getSelectedBitrate: () => "best",
         // sprawdzanie linku (zadanie BUG-1a) ma wlasne testy w link.test.js; tu link jest zawsze przyjety
         validateUrl: () => true,
+        // folder docelowy (zadanie UL-2c): tu zawsze wybrany; reszta obslugi folderu ma testy w folder-strona.test.js
+        getTargetFolder: () => folder,
+        markFolderError: () => { folderErrors.push(true); },
         getExperimentalOptions: () => ({ trimStart, trimEnd }),
         fetch: (...args) => {
             fetchCalls.push(args);
@@ -182,10 +186,11 @@ function buildPage({ trimStart = "", trimEnd = "", type = "audio", fetchImpl } =
         cutFunction("function clearStatus() {"),
         cutFunction("function showStatusError(message) {"),
         cutFunction("function showStatusSuccess(files) {"),
+        cutFunction("function isFolderError(status, message) {"),
         cutFunction("async function handleDownloadSubmit(event) {")
     ].join("\n\n"), context);
 
-    return { context, logs, fetchCalls, created, timers, statusBox, body, buttonText, buttonLoader };
+    return { context, logs, fetchCalls, created, timers, statusBox, body, buttonText, buttonLoader, folderErrors };
 }
 
 function submit(page) {
@@ -229,19 +234,20 @@ function assertButtonIdle(page) {
     assert.equal(page.buttonLoader.classList.contains("hidden"), true);
 }
 
+// UL-2c: serwer odpowiada nazwa i pelna sciezka pliku w folderze docelowym ({ name, path }), bez adresow /downloads
+const targetFolder = "C:\\Pobrane\\Filmy";
 const audioName = "the #1 NO SCOPE player in rivals [0a1b2c3d].mp3";
-const audioUrl = "/downloads/the%20%231%20NO%20SCOPE%20player%20in%20rivals%20%5B0a1b2c3d%5D.mp3";
+const audioPath = `${targetFolder}\\${audioName}`;
 const videoName = "the #1 NO SCOPE player in rivals video [0a1b2c3d].mp4";
-const videoUrl = "/downloads/the%20%231%20NO%20SCOPE%20player%20in%20rivals%20video%20%5B0a1b2c3d%5D.mp4";
+const videoPath = `${targetFolder}\\${videoName}`;
 const separateAudioName = "the #1 NO SCOPE player in rivals audio [0a1b2c3d].mp3";
-const separateAudioUrl = "/downloads/the%20%231%20NO%20SCOPE%20player%20in%20rivals%20audio%20%5B0a1b2c3d%5D.mp3";
+const separateAudioPath = `${targetFolder}\\${separateAudioName}`;
 
 function audioSuccess() {
     return jsonResponse(200, {
         success: true,
         message: "Pobrano audio.",
-        downloadUrl: audioUrl,
-        files: [{ name: audioName, url: audioUrl }],
+        files: [{ name: audioName, path: audioPath }],
         receivedData: {}
     });
 }
@@ -250,11 +256,14 @@ function separateSuccess() {
     return jsonResponse(200, {
         success: true,
         message: "Pobrano osobno.",
-        downloadUrl: separateAudioUrl,
-        downloadUrls: [videoUrl, separateAudioUrl],
-        files: [{ name: videoName, url: videoUrl }, { name: separateAudioName, url: separateAudioUrl }],
+        files: [{ name: videoName, path: videoPath }, { name: separateAudioName, path: separateAudioPath }],
         receivedData: {}
     });
+}
+
+// akapity pola statusu po kolei (tytul i sciezki plikow)
+function readLines(page) {
+    return page.statusBox.children.filter(child => child.tagName === "P").map(child => child.textContent);
 }
 
 // ---------- index.html i style.css ----------
@@ -274,13 +283,14 @@ test("U1: index.html ma pod przyciskiem Pobierz ukryte pole #statusBox z aria-li
     assert.equal(classes.includes("status-box"), true, tag);
     assert.equal(classes.includes("hidden") || /\shidden(\s|>|=)/.test(tag), true, "pole ma byc domyslnie ukryte");
 
-    // pole jest puste, stoi w formularzu, zaraz po przycisku
-    assert.match(htmlSource, /<\/button>\s*<div\b[^>]*\bid="statusBox"[^>]*><\/div>\s*<\/form>/);
+    // pole jest puste, stoi w formularzu na koncu (UL-2c: miedzy przyciskiem a polem jest wiersz folderu docelowego)
+    assert.match(htmlSource, /<div\b[^>]*\bid="statusBox"[^>]*><\/div>\s*<\/form>/);
 
     const buttonAt = htmlSource.indexOf('id="downloadButton"');
+    const folderAt = htmlSource.indexOf('id="folderBlock"');
     const boxAt = htmlSource.indexOf('id="statusBox"');
 
-    assert.equal(buttonAt !== -1 && buttonAt < boxAt, true);
+    assert.equal(buttonAt !== -1 && buttonAt < folderAt && folderAt < boxAt, true);
 });
 
 test("U1: style.css ma styl pola: lamanie dlugich nazw, osobny akcent dla bledu i dla sukcesu, klasa hidden dalej chowa", () => {
@@ -483,7 +493,7 @@ test("U1: po bledzie udane pobranie zdejmuje akcent bledu", async () => {
 
 // ---------- sukces ----------
 
-test("U1: udane pobranie - Gotowe i link: tekst = nazwa pliku, href = adres z odpowiedzi, atrybut download", async () => {
+test("UL-2c: udane pobranie - Gotowe — zapisano: i pelna sciezka pliku, bez linkow", async () => {
     const page = buildPage({ fetchImpl: async () => audioSuccess() });
 
     await submit(page);
@@ -493,14 +503,16 @@ test("U1: udane pobranie - Gotowe i link: tekst = nazwa pliku, href = adres z od
     assert.equal(status.visible, true);
     assert.equal(status.success, true);
     assert.equal(status.error, false);
-    assert.deepEqual(status.links, [{ text: audioName, href: audioUrl, download: audioName }]);
-    assert.equal(status.text, `Gotowe${audioName}`, "w polu ma byc napis Gotowe i nazwa pliku, nic wiecej");
+    assert.deepEqual(status.links, []);
+    assert.deepEqual(readLines(page), ["Gotowe — zapisano:", audioPath]);
+    assert.equal(status.text, `Gotowe — zapisano:${audioPath}`, "w polu ma byc tytul i sciezka, nic wiecej");
     assert.deepEqual(page.logs.filter(([type]) => type === "error"), []);
     assert.deepEqual(page.logs.filter(([type]) => type === "success"), [["success", "Pobrano audio."]]);
+    assert.deepEqual(page.logs.filter(([type]) => type === "file"), [["file", `Zapisano: ${audioPath}`]]);
     assertButtonIdle(page);
 });
 
-test("U3: tryb osobno - dwa linki z nazwami plikow, w kolejnosci z odpowiedzi serwera", async () => {
+test("UL-2c: tryb osobno - dwie pelne sciezki, w kolejnosci z odpowiedzi serwera", async () => {
     const page = buildPage({ type: "separate", fetchImpl: async () => separateSuccess() });
 
     await submit(page);
@@ -508,79 +520,144 @@ test("U3: tryb osobno - dwa linki z nazwami plikow, w kolejnosci z odpowiedzi se
     const status = readStatus(page);
 
     assert.equal(status.success, true);
-    assert.deepEqual(status.links, [
-        { text: videoName, href: videoUrl, download: videoName },
-        { text: separateAudioName, href: separateAudioUrl, download: separateAudioName }
-    ]);
-    assert.equal(status.text, `Gotowe${videoName}${separateAudioName}`);
+    assert.deepEqual(status.links, []);
+    assert.deepEqual(readLines(page), ["Gotowe — zapisano:", videoPath, separateAudioPath]);
 });
 
-test("U1: automatyczne pobieranie zostaje - jeden plik jest klikany raz, poza polem statusu", async () => {
-    const page = buildPage({ fetchImpl: async () => audioSuccess() });
+for (const [label, type, answer] of [
+    ["jeden plik", "audio", () => audioSuccess()],
+    ["tryb osobno", "separate", () => separateSuccess()]
+]) {
+    test(`UL-2c: koniec automatycznego pobierania przez przegladarke (${label}) - nic nie jest klikane ani dokladane do strony`, async () => {
+        const page = buildPage({ type, fetchImpl: async () => answer() });
 
-    await submit(page);
+        await submit(page);
 
-    const clicked = page.created.filter(element => element.clicks > 0);
+        assert.deepEqual(page.created.filter(element => element.clicks > 0), []);
+        assert.deepEqual(page.created.filter(element => element.tagName === "A"), [], "zaden link nie powstaje");
+        assert.deepEqual(page.timers, []);
+        assert.equal(page.body.children.length, 0);
+        assert.equal(page.logs.some(([, text]) => String(text).includes("automatyczne pobieranie")), false);
+    });
+}
 
-    assert.equal(clicked.length, 1);
-    assert.equal(clicked[0].tagName, "A");
-    assert.equal(clicked[0].clicks, 1);
-    assert.equal(clicked[0].href, audioUrl);
-    assert.equal(clicked[0].hasAttribute("download"), true);
-
-    // klikany link jest tymczasowy: nie zostaje ani w polu statusu, ani na stronie
-    assert.equal(findAll(page.statusBox, "A").includes(clicked[0]), false);
-    assert.equal(page.body.children.length, 0);
-    assert.equal(page.logs.some(([type, text]) => type === "file" && text === "Rozpoczynam automatyczne pobieranie pliku..."), true);
-});
-
-test("U3: automatyczne pobieranie zostaje - w trybie osobno klikane sa oba pliki, drugi z opoznieniem 700 ms", async () => {
-    const page = buildPage({ type: "separate", fetchImpl: async () => separateSuccess() });
-
-    await submit(page);
-
-    const clicked = page.created.filter(element => element.clicks > 0);
-
-    assert.deepEqual(clicked.map(element => [element.href, element.clicks]), [[videoUrl, 1], [separateAudioUrl, 1]]);
-    assert.deepEqual(page.timers, [0, 700]);
-    assert.equal(page.body.children.length, 0);
-
-    // linki w polu statusu sa osobnymi elementami i same nie sa klikane
-    assert.deepEqual(findAll(page.statusBox, "A").map(link => link.clicks), [0, 0]);
-});
-
-test("U1: nazwa pliku ze znacznikami HTML jest tekstem linku, a nie elementami strony", async () => {
-    const name = "<img src=x onerror=alert(1)> & <b>film</b> [0a1b2c3d].mp3";
-    const url = `/downloads/${encodeURIComponent(name)}`;
+test("UL-2c: stare pola downloadUrl i downloadUrls w odpowiedzi niczego nie pobieraja i nie tworza linkow", async () => {
     const page = buildPage({
-        fetchImpl: async () => jsonResponse(200, { message: "ok", downloadUrl: url, files: [{ name, url }] })
+        fetchImpl: async () => jsonResponse(200, {
+            message: "ok",
+            downloadUrl: "/downloads/a.mp3",
+            downloadUrls: ["/downloads/a.mp4", "/downloads/a.mp3"],
+            files: [{ name: "a.mp3", path: "C:\\Pobrane\\a.mp3" }]
+        })
     });
 
     await submit(page);
 
-    assert.deepEqual(readStatus(page).links, [{ text: name, href: url, download: name }]);
+    assert.deepEqual(readStatus(page).links, []);
+    assert.deepEqual(readLines(page), ["Gotowe — zapisano:", "C:\\Pobrane\\a.mp3"]);
+    assert.deepEqual(page.created.filter(element => element.clicks > 0), []);
+});
+
+test("UL-2c: sciezka ze znacznikami HTML jest tekstem, a nie elementami strony", async () => {
+    const name = "<img src=x onerror=alert(1)> & <b>film</b> [0a1b2c3d].mp3";
+    const filePath = `C:\\Pobrane\\${name}`;
+    const page = buildPage({
+        fetchImpl: async () => jsonResponse(200, { message: "ok", files: [{ name, path: filePath }] })
+    });
+
+    await submit(page);
+
+    assert.deepEqual(readLines(page), ["Gotowe — zapisano:", filePath]);
     assert.deepEqual(page.created.map(element => element.tagName).filter(tag => tag === "IMG" || tag === "B"), []);
 });
 
-test("U1: odpowiedz bez tablicy files (starszy serwer) - samo Gotowe, bez linkow i bez bledu", async () => {
+test("UL-2c: plik bez sciezki (starszy serwer) - w polu jest sama nazwa", async () => {
     const page = buildPage({
-        fetchImpl: async () => jsonResponse(200, { message: "ok", downloadUrl: audioUrl })
+        fetchImpl: async () => jsonResponse(200, { message: "ok", files: [{ name: audioName, url: "/downloads/x" }] })
     });
 
     await submit(page);
 
-    assert.deepEqual(readStatus(page), { visible: true, error: false, success: true, text: "Gotowe", links: [] });
-    assert.equal(page.created.filter(element => element.clicks > 0).length, 1, "automatyczne pobieranie dalej dziala");
+    assert.deepEqual(readLines(page), ["Gotowe — zapisano:", audioName]);
+    assert.deepEqual(readStatus(page).links, []);
+});
+
+test("UL-2c: odpowiedz bez tablicy files - sam tytul, bez linkow i bez bledu", async () => {
+    const page = buildPage({ fetchImpl: async () => jsonResponse(200, { message: "ok" }) });
+
+    await submit(page);
+
+    assert.deepEqual(readStatus(page), { visible: true, error: false, success: true, text: "Gotowe — zapisano:", links: [] });
     assertButtonIdle(page);
 });
 
-test("U1: odpowiedz z pusta tablica files - samo Gotowe, bez linkow", async () => {
+test("UL-2c: odpowiedz z pusta tablica files - sam tytul, bez linkow", async () => {
     const page = buildPage({ fetchImpl: async () => jsonResponse(200, { message: "ok", files: [] }) });
 
     await submit(page);
 
-    assert.deepEqual(readStatus(page), { visible: true, error: false, success: true, text: "Gotowe", links: [] });
+    assert.deepEqual(readStatus(page), { visible: true, error: false, success: true, text: "Gotowe — zapisano:", links: [] });
 });
+
+// ---------- folder docelowy w zadaniu (UL-2c) ----------
+
+test("UL-2c: wyslanie formularza bez folderu (inna droga niz wylaczony przycisk) - nic nie idzie do serwera, komunikat w polu", async () => {
+    const page = buildPage({ folder: "", fetchImpl: async () => audioSuccess() });
+
+    // stala z sekcji folderu w script.js (handleDownloadSubmit jest tu wycinany osobno)
+    page.context.noFolderMessage = "Najpierw wybierz folder docelowy";
+
+    await submit(page);
+
+    assert.equal(page.fetchCalls.length, 0);
+    assert.deepEqual(readStatus(page), {
+        visible: true, error: true, success: false, text: "Najpierw wybierz folder docelowy", links: []
+    });
+    assert.deepEqual(page.logs, [["error", "Najpierw wybierz folder docelowy"]]);
+    assertButtonIdle(page);
+});
+
+test("UL-2c: zadanie pobrania niesie pole folder z wybranym folderem", async () => {
+    const page = buildPage({ fetchImpl: async () => audioSuccess() });
+
+    await submit(page);
+
+    assert.equal(page.fetchCalls.length, 1);
+    assert.equal(JSON.parse(page.fetchCalls[0][1].body).folder, "C:\\Pobrane\\Filmy");
+});
+
+for (const message of [
+    "Nie wybrano folderu docelowego.",
+    "Folder docelowy musi być pełną ścieżką: Pobrane",
+    "Folder docelowy nie istnieje: C:\\Nie ma",
+    "Nie można zapisywać w folderze docelowym: C:\\Windows"
+]) {
+    test(`UL-2c: blad 400 folderu (${message}) - komunikat w polu statusu i prosba o wybor folderu od nowa`, async () => {
+        const page = buildPage({ fetchImpl: async () => jsonResponse(400, { success: false, message }) });
+
+        await submit(page);
+
+        assert.deepEqual(readStatus(page), { visible: true, error: true, success: false, text: message, links: [] });
+        assert.deepEqual(page.logs.filter(([type]) => type === "error"), [["error", message]]);
+        assert.equal(page.folderErrors.length, 1, "wiersz folderu ma prosic o wybor od nowa");
+        assertButtonIdle(page);
+    });
+}
+
+for (const [status, message] of [
+    [400, "Niepoprawny link."],
+    [400, "To link do playlisty. Wklej link do jednego filmu."],
+    [500, "Nie udało się przenieść pliku do folderu docelowego."]
+]) {
+    test(`UL-2c: inny blad (HTTP ${status}: ${message}) nie oznacza folderu jako zlego`, async () => {
+        const page = buildPage({ fetchImpl: async () => jsonResponse(status, { message }) });
+
+        await submit(page);
+
+        assert.equal(readStatus(page).text, message);
+        assert.equal(page.folderErrors.length, 0);
+    });
+}
 
 test("U1: funkcje pola statusu nie uzywaja innerHTML, outerHTML ani insertAdjacentHTML", () => {
     for (const header of [

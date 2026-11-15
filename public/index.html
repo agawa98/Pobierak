@@ -99,10 +99,30 @@
 
           </div>
 
-          <button type="submit" id="downloadButton">
+          <button type="submit" id="downloadButton" disabled title="Najpierw wybierz folder docelowy">
             <span class="button-loader hidden"></span>
             <span class="button-text">Pobierz</span>
           </button>
+
+          <div class="folder-block" id="folderBlock">
+            <div class="folder-row">
+              <p class="folder-line">
+                <span class="folder-label">Folder docelowy:</span>
+                <span class="folder-path is-empty" id="folderPath">nie wybrano</span>
+              </p>
+              <button type="button" class="folder-button" id="chooseFolderButton">Wybierz folder…</button>
+            </div>
+
+            <div class="folder-manual hidden" id="folderManual">
+              <label for="folderManualInput">Wklej pełną ścieżkę folderu</label>
+              <div class="folder-manual-row">
+                <input type="text" id="folderManualInput" autocomplete="off" spellcheck="false">
+                <button type="button" class="folder-button" id="folderManualSave">Zapisz</button>
+              </div>
+            </div>
+
+            <p class="validation-message" id="folderMessage">Najpierw wybierz folder docelowy</p>
+          </div>
 
           <div id="statusBox" class="status-box hidden" aria-live="polite"></div>
         </form>

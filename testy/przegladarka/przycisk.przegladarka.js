@@ -27,6 +27,8 @@ function stopServer(server) {
 // otwiera strone. zadania do /api/download nie trafiaja do programu: sa liczone i czekaja na release()
 async function openPage(browser, server) {
     const page = await browser.newPage();
+    // UL-2c: bez wybranego folderu przycisk "Pobierz" jest wylaczony; folder jest zapamietany jak po wyborze
+    await page.addInitScript(() => localStorage.setItem("pobierak.folderDocelowy", "C:\\Pobrane"));
     const baseUrl = `http://127.0.0.1:${server.address().port}`;
     const downloadRequests = [];
     let release;

@@ -1,5 +1,5 @@
 // Sprawdzenie zadania U1 + U3 + U4 w przegladarce (Edge przez playwright-core): pole statusu pod przyciskiem "Pobierz".
-// Zly link -> czytelny blad pod przyciskiem; udane pobranie -> "Gotowe" z dzialajacym linkiem; tryb "osobno" -> dwa linki;
+// Zly link -> czytelny blad pod przyciskiem; udane pobranie -> "Gotowe — zapisano:" z pelna sciezka (UL-2c, bez linkow); tryb "osobno" -> dwie sciezki;
 // odpowiedz, ktora nie jest JSON-em -> komunikat z kodem HTTP; tlo z logami bez zmian.
 // Uruchamianie: npm run test:przegladarka. Nie jest czescia "npm test", bo wymaga Edge.
 // Nic nie pobiera z internetu: zadania poza 127.0.0.1 sa odcinane, a odpowiedzi /api/download i pliki z /downloads podstawia test.
@@ -27,9 +27,9 @@ function stopServer(server) {
     });
 }
 
-// plik podstawiany pod /downloads/<nazwa>
+// plik z odpowiedzi serwera (UL-2c: nazwa i pelna sciezka w folderze docelowym)
 function fileEntry(name) {
-    return { name, url: `/downloads/${encodeURIComponent(name)}`, body: `tresc pliku: ${name}` };
+    return { name, path: `C:\\Pobrane\\${name}` };
 }
 
 // otwiera strone. respond(numerZadania) zwraca odpowiedz na kolejne POST /api/download:
@@ -40,6 +40,8 @@ async function withPage(respond, files, run) {
 
     try {
         const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+        // UL-2c: bez wybranego folderu przycisk "Pobierz" jest wylaczony; folder jest zapamietany jak po wyborze
+        await page.addInitScript(() => localStorage.setItem("pobierak.folderDocelowy", "C:\\Pobrane"));
         const baseUrl = `http://127.0.0.1:${server.address().port}`;
         const downloads = [];          // pobrania rozpoczete przez strone
         const pageErrors = [];
@@ -107,6 +109,8 @@ function readStatus(page) {
             success: box.classList.contains("is-success"),
             text: box.innerText.trim(),
             elements: Array.from(box.querySelectorAll("*")).map(element => element.tagName),
+            // UL-2c: pelne sciezki zapisanych plikow
+            paths: Array.from(box.querySelectorAll(".status-file")).map(line => line.textContent),
             links: Array.from(box.querySelectorAll("a")).map(link => ({
                 text: link.textContent,
                 href: link.getAttribute("href"),
@@ -183,14 +187,16 @@ test("U1: pole statusu jest na starcie ukryte, puste, pod przyciskiem Pobierz, z
                 ariaLive: box.getAttribute("aria-live"),
                 tag: box.tagName,
                 hasClass: box.classList.contains("status-box"),
-                previousIsButton: box.previousElementSibling === button,
+                // UL-2c: miedzy przyciskiem a polem stoi wiersz folderu docelowego
+                afterFolderRow: box.previousElementSibling === document.querySelector("#folderBlock")
+                    && document.querySelector("#folderBlock").previousElementSibling === button,
                 inForm: box.closest("#downloadForm") !== null
             };
         });
 
         assert.deepEqual(state, {
             count: 1, display: "none", text: "", ariaLive: "polite", tag: "DIV",
-            hasClass: true, previousIsButton: true, inForm: true
+            hasClass: true, afterFolderRow: true, inForm: true
         });
     });
 });
@@ -274,16 +280,15 @@ test("U1: zly link - czytelny blad pod przyciskiem, z czerwonym akcentem; start 
     });
 });
 
-test("U1: udane pobranie - Gotowe z dzialajacym linkiem (nazwa z # i %), automatyczne pobieranie zostaje", async () => {
+test("UL-2c: udane pobranie - Gotowe — zapisano: i pelna sciezka (nazwa z # i %), bez linkow i bez pobierania przez przegladarke", async () => {
     const answer = {
         success: true,
         message: "Pobrano audio.",
-        downloadUrl: audioFile.url,
-        files: [{ name: audioFile.name, url: audioFile.url }],
+        files: [{ name: audioFile.name, path: audioFile.path }],
         receivedData: {}
     };
 
-    await withPage(() => ({ status: 200, json: answer }), [audioFile], async ({ page, downloads }) => {
+    await withPage(() => ({ status: 200, json: answer }), [], async ({ page, downloads }) => {
         await page.fill("#url", testUrl);
         await clickAndWait(page);
 
@@ -292,40 +297,21 @@ test("U1: udane pobranie - Gotowe z dzialajacym linkiem (nazwa z # i %), automat
         assert.equal(status.visible, true);
         assert.equal(status.success, true);
         assert.equal(status.error, false);
-        assert.deepEqual(status.links, [{ text: audioFile.name, href: audioFile.url, download: audioFile.name }]);
-        assert.equal(status.text.startsWith("Gotowe"), true, status.text);
-        assert.equal(status.text.replace(/\s+/g, " "), `Gotowe ${audioFile.name}`);
+        assert.deepEqual(status.links, []);
+        assert.deepEqual(status.paths, [audioFile.path]);
+        assert.equal(status.text.replace(/\s+/g, " "), `Gotowe — zapisano: ${audioFile.path}`);
 
         // fioletowo-niebieski akcent: inny niz przy bledzie, bez przewagi czerwieni
         const [red, green, blue] = status.borderColor.match(/[\d.]+/g).map(Number);
 
         assert.equal(blue > 200 && blue > red && blue > green, true, `obwodka sukcesu: ${status.borderColor}`);
 
-        // automatyczne pobieranie: jeden plik, bez klikania
-        await assert.doesNotReject(waitFor(() => downloads.length === 1));
-        assert.deepEqual(downloads, [audioFile.name]);
+        // nic sie nie pobiera przez przegladarke i na stronie nie ma zadnych linkow do plikow
+        await page.waitForTimeout(500);
+        assert.deepEqual(downloads, []);
+        assert.equal(await page.$$eval("a", links => links.length), 0);
 
-        // adres z linku zwraca plik
-        const fetched = await page.evaluate(async () => {
-            const link = document.querySelector("#statusBox a");
-            const response = await fetch(link.href);
-
-            return { status: response.status, body: await response.text() };
-        });
-
-        assert.deepEqual(fetched, { status: 200, body: audioFile.body });
-
-        // klikniecie linku pobiera plik pod jego nazwa
-        const [download] = await Promise.all([
-            page.waitForEvent("download"),
-            page.click("#statusBox a")
-        ]);
-
-        assert.equal(download.suggestedFilename(), audioFile.name);
-        assert.equal(download.url().endsWith(audioFile.url), true);
-
-        // link zostaje w polu po kliknieciu (to jest link zapasowy)
-        assert.equal((await readStatus(page)).links.length, 1);
+        assert.equal((await readLogLines(page)).includes(`[file] Zapisano: ${audioFile.path}`), true);
     });
 });
 
@@ -342,20 +328,18 @@ async function waitFor(condition) {
     }
 }
 
-test("U3: tryb osobno - dwa linki z nazwami plikow, oba dzialaja", async () => {
+test("UL-2c: tryb osobno - dwie pelne sciezki jedna pod druga, bez linkow i bez pobierania", async () => {
     const answer = {
         success: true,
         message: "Pobrano osobno.",
-        downloadUrl: separateAudioFile.url,
-        downloadUrls: [videoFile.url, separateAudioFile.url],
         files: [
-            { name: videoFile.name, url: videoFile.url },
-            { name: separateAudioFile.name, url: separateAudioFile.url }
+            { name: videoFile.name, path: videoFile.path },
+            { name: separateAudioFile.name, path: separateAudioFile.path }
         ],
         receivedData: {}
     };
 
-    await withPage(() => ({ status: 200, json: answer }), [videoFile, separateAudioFile], async ({ page, downloads }) => {
+    await withPage(() => ({ status: 200, json: answer }), [], async ({ page, downloads }) => {
         await page.fill("#url", testUrl);
         await page.click('.choice:has(input[value="separate"])');
         await clickAndWait(page);
@@ -363,48 +347,24 @@ test("U3: tryb osobno - dwa linki z nazwami plikow, oba dzialaja", async () => {
         const status = await readStatus(page);
 
         assert.equal(status.success, true);
-        assert.deepEqual(status.links, [
-            { text: videoFile.name, href: videoFile.url, download: videoFile.name },
-            { text: separateAudioFile.name, href: separateAudioFile.url, download: separateAudioFile.name }
-        ]);
+        assert.deepEqual(status.links, []);
+        assert.deepEqual(status.paths, [videoFile.path, separateAudioFile.path]);
 
-        // linki stoja jeden pod drugim, a nie w jednym wierszu
-        const tops = await page.$$eval("#statusBox a", links => links.map(link => link.getBoundingClientRect().top));
+        // sciezki stoja jedna pod druga, a nie w jednym wierszu
+        const tops = await page.$$eval("#statusBox .status-file", lines => lines.map(line => line.getBoundingClientRect().top));
 
         assert.equal(tops[1] > tops[0], true);
 
-        const fetched = await page.evaluate(() => Promise.all(Array.from(document.querySelectorAll("#statusBox a"))
-            .map(async (link) => {
-                const response = await fetch(link.href);
-
-                return [response.status, await response.text()];
-            })));
-
-        assert.deepEqual(fetched, [[200, videoFile.body], [200, separateAudioFile.body]]);
-
-        // automatyczne pobieranie zostaje: pierwszy plik rusza zawsze. drugi przegladarka moze wstrzymac
-        // (pytanie o zgode na kilka plikow) - po to sa linki w polu
-        await waitFor(() => downloads.length >= 1);
-        assert.equal(downloads[0], videoFile.name);
-
-        // drugi link z pola pobiera drugi plik
-        const [download] = await Promise.all([
-            page.waitForEvent("download", { predicate: item => item.url().endsWith(separateAudioFile.url) }),
-            page.click("#statusBox a >> nth=1")
-        ]);
-
-        assert.equal(download.suggestedFilename(), separateAudioFile.name);
+        await page.waitForTimeout(1000);
+        assert.deepEqual(downloads, []);
     });
 });
 
-test("U1: bardzo dluga nazwa pliku lamie sie w polu i nie rozpycha karty ani strony", async () => {
+test("UL-2c: bardzo dluga sciezka lamie sie w polu i nie rozpycha karty ani strony", async () => {
     const longFile = fileEntry(`${"BardzoDlugaNazwaBezSpacji".repeat(8)} [0a1b2c3d].mp3`);
-    const answer = {
-        success: true, message: "ok", downloadUrl: longFile.url,
-        files: [{ name: longFile.name, url: longFile.url }], receivedData: {}
-    };
+    const answer = { success: true, message: "ok", files: [{ name: longFile.name, path: longFile.path }], receivedData: {} };
 
-    await withPage(() => ({ status: 200, json: answer }), [longFile], async ({ page }) => {
+    await withPage(() => ({ status: 200, json: answer }), [], async ({ page }) => {
         const before = await readLayout(page);
 
         await page.fill("#url", testUrl);
@@ -417,36 +377,36 @@ test("U1: bardzo dluga nazwa pliku lamie sie w polu i nie rozpycha karty ani str
 
         const box = await page.evaluate(() => {
             const element = document.querySelector("#statusBox");
-            const link = element.querySelector("a");
+            const line = element.querySelector(".status-file");
             const card = document.querySelector(".card").getBoundingClientRect();
             const rect = element.getBoundingClientRect();
-            const linkRect = link.getBoundingClientRect();
+            const lineRect = line.getBoundingClientRect();
 
             return {
                 overflow: element.scrollWidth > element.clientWidth,
                 insideCard: rect.left >= card.left && rect.right <= card.right,
-                linkInsideBox: linkRect.left >= rect.left && linkRect.right <= rect.right,
-                linkLines: Math.round(linkRect.height / parseFloat(getComputedStyle(link).lineHeight))
+                lineInsideBox: lineRect.left >= rect.left && lineRect.right <= rect.right,
+                lines: Math.round(lineRect.height / parseFloat(getComputedStyle(line).lineHeight))
             };
         });
 
-        assert.equal(box.overflow, false, "nazwa wystaje poza pole");
+        assert.equal(box.overflow, false, "sciezka wystaje poza pole");
         assert.equal(box.insideCard, true);
-        assert.equal(box.linkInsideBox, true);
-        assert.equal(box.linkLines >= 2, true, "dluga nazwa powinna zajac wiecej niz jeden wiersz");
+        assert.equal(box.lineInsideBox, true);
+        assert.equal(box.lines >= 2, true, "dluga sciezka powinna zajac wiecej niz jeden wiersz");
     });
 });
 
-test("U1: tresc z serwera jest pokazywana doslownie - znaczniki w komunikacie i w nazwie pliku nie staja sie elementami", async () => {
+test("U1: tresc z serwera jest pokazywana doslownie - znaczniki w komunikacie i w sciezce pliku nie staja sie elementami", async () => {
     const evilName = "<img src=x onerror=window.hacked=1> <b>film</b> [0a1b2c3d].mp3";
     const evilFile = fileEntry(evilName);
     const evilMessage = "ffmpeg: <img src=x onerror=window.hacked=1> & <script>window.hacked=1</script>";
 
     const respond = (number) => number === 1
         ? { status: 500, json: { message: evilMessage } }
-        : { status: 200, json: { message: "ok", downloadUrl: evilFile.url, files: [{ name: evilName, url: evilFile.url }] } };
+        : { status: 200, json: { message: "ok", files: [{ name: evilName, path: evilFile.path }] } };
 
-    await withPage(respond, [evilFile], async ({ page, baseUrl, requested }) => {
+    await withPage(respond, [], async ({ page, baseUrl, requested }) => {
         await page.fill("#url", testUrl);
         await clickAndWait(page);
 
@@ -460,7 +420,7 @@ test("U1: tresc z serwera jest pokazywana doslownie - znaczniki w komunikacie i 
 
         const success = await readStatus(page);
 
-        assert.deepEqual(success.links, [{ text: evilName, href: evilFile.url, download: evilName }]);
+        assert.deepEqual(success.paths, [evilFile.path]);
         assert.deepEqual(success.elements.filter(tag => tag === "IMG" || tag === "SCRIPT" || tag === "B"), []);
 
         await page.waitForTimeout(300);
@@ -473,11 +433,11 @@ test("U1: tresc z serwera jest pokazywana doslownie - znaczniki w komunikacie i 
 
 test("U1: blad walidacji przycinania jest widoczny w polu statusu; po poprawce i udanym pobraniu znika", async () => {
     const answer = {
-        success: true, message: "ok", downloadUrl: audioFile.url,
-        files: [{ name: audioFile.name, url: audioFile.url }], receivedData: {}
+        success: true, message: "ok",
+        files: [{ name: audioFile.name, path: audioFile.path }], receivedData: {}
     };
 
-    await withPage(() => ({ status: 200, json: answer }), [audioFile], async ({ page }) => {
+    await withPage(() => ({ status: 200, json: answer }), [], async ({ page }) => {
         await page.fill("#url", testUrl);
         await page.click("#experimentalToggle");
         await page.fill("#trimStart", "2:00");
@@ -500,9 +460,9 @@ test("U1: blad walidacji przycinania jest widoczny w polu statusu; po poprawce i
 
         assert.equal(success.error, false);
         assert.equal(success.text.includes("Początek"), false);
-        assert.equal(success.links.length, 1);
+        assert.deepEqual(success.paths, [audioFile.path]);
 
-        // pole pokazuje Gotowe z linkiem; kolejne bledne przyciecie zastepuje to samym bledem
+        // pole pokazuje Gotowe ze sciezka; kolejne bledne przyciecie zastepuje to samym bledem
         await page.fill("#trimEnd", "0:30");
         await page.click("#downloadButton");
         await page.waitForFunction(() => document.querySelector("#statusBox").classList.contains("is-error"));
@@ -568,9 +528,9 @@ test("U4: serwer nie odpowiada - komunikat o braku polaczenia zostaje, takze w p
 test("U1: tlo z logami bez zmian - to samo polozenie i styl przy ukrytym polu, przy bledzie i przy sukcesie", async () => {
     const respond = (number) => number === 1
         ? { status: 500, json: { message: "yt-dlp: ERROR: blad testowy" } }
-        : { status: 200, json: { message: "Pobrano.", downloadUrl: audioFile.url, files: [{ name: audioFile.name, url: audioFile.url }] } };
+        : { status: 200, json: { message: "Pobrano.", files: [{ name: audioFile.name, path: audioFile.path }] } };
 
-    await withPage(respond, [audioFile], async ({ page }) => {
+    await withPage(respond, [], async ({ page }) => {
         const before = await readLayout(page);
 
         // wartosci sprzed zadania (z public/style.css): tlo na caly ekran, pod karta, bez reakcji na mysz
