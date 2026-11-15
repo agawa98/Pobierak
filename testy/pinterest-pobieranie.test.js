@@ -7,6 +7,12 @@
 
 const { folderDocelowy } = require("./folder-docelowy-pomoc");
 const test = require("node:test");
+
+// UL-8d: oczekiwany wariant z limitem krotszego boku - najpierw film pionowy (szerokosc <= R, wysokosc > R),
+// potem dotychczasowy limit wysokosci (film poziomy)
+function shorterSide(prefix, resolution, suffix = "") {
+    return `${prefix}[width<=${resolution}][height>${resolution}]${suffix}/${prefix}[height<=${resolution}]${suffix}`;
+}
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -348,7 +354,7 @@ test("UL-8c: tryb osobno, pin, mp4/mpeg/mjpeg - najlepszy obraz bez wymogu kodek
             for (const resolution of ["144", "360", "480", "720", "1080"]) {
                 assert.equal(
                     buildVideoOnlyFormat(resolution, format, link),
-                    `bv*[format_id!*=HEVC][height<=${resolution}]/bv*[height<=${resolution}]`,
+                    `${shorterSide("bv*[format_id!*=HEVC]", resolution)}/${shorterSide("bv*", resolution)}`,
                     `${link} ${format} ${resolution}`
                 );
             }
@@ -367,7 +373,8 @@ test("UL-8c: tryb osobno, pin - filtr nie wymaga kodeka avc1 ani kontenera, nie 
             assert.match(part, /^bv\*/, part);
 
             if (resolution !== "best") {
-                assert.ok(part.includes(`[height<=${resolution}]`), part);
+                // UL-8d: limit krotszego boku
+                assert.ok(part.includes(`[height<=${resolution}]`) || part.includes(`[width<=${resolution}][height>${resolution}]`), part);
             }
         }
     }
@@ -375,19 +382,19 @@ test("UL-8c: tryb osobno, pin - filtr nie wymaga kodeka avc1 ani kontenera, nie 
 
 test("UL-8c: tryb osobno, pin, mkv - bez zmian (juz bral najlepszy obraz)", () => {
     assert.equal(buildVideoOnlyFormat("best", "mkv", pinUrl), "bv*");
-    assert.equal(buildVideoOnlyFormat("720", "mkv", pinUrl), "bv*[height<=720]");
-    assert.equal(buildVideoOnlyFormat("2160", "mkv", pinUrl), "bv*[height<=2160]");
+    assert.equal(buildVideoOnlyFormat("720", "mkv", pinUrl), shorterSide("bv*", "720"));
+    assert.equal(buildVideoOnlyFormat("2160", "mkv", pinUrl), shorterSide("bv*", "2160"));
 });
 
 test("UL-8c: YouTube i inne serwisy - filtr trybu osobno bez zmian, z linkiem i bez linku", () => {
     for (const link of otherLinks) {
         for (const format of ["mp4", "mpeg", "mjpeg"]) {
             assert.equal(buildVideoOnlyFormat("best", format, link), "bv*[ext=mp4][vcodec^=avc1]/bv*", String(link));
-            assert.equal(buildVideoOnlyFormat("720", format, link), "bv*[ext=mp4][vcodec^=avc1][height<=720]/bv*[height<=720]", String(link));
+            assert.equal(buildVideoOnlyFormat("720", format, link), `${shorterSide("bv*[ext=mp4][vcodec^=avc1]", "720")}/${shorterSide("bv*", "720")}`, String(link));
         }
 
         assert.equal(buildVideoOnlyFormat("best", "mkv", link), "bv*", String(link));
-        assert.equal(buildVideoOnlyFormat("720", "mkv", link), "bv*[height<=720]", String(link));
+        assert.equal(buildVideoOnlyFormat("720", "mkv", link), shorterSide("bv*", "720"), String(link));
     }
 
     assert.equal(buildVideoOnlyFormat("best", "mp4"), "bv*[ext=mp4][vcodec^=avc1]/bv*");
@@ -422,7 +429,7 @@ test("UL-8c: downloadSeparate przekazuje do yt-dlp filtr dla pina, a dla YouTube
     assert.deepEqual(await formatsPassedToYtDlp(t, () => appModule.downloadSeparate(pinUrl, "best", "mp4", jobId)), ["bv*[format_id!*=HEVC]/bv*"]);
     assert.deepEqual(
         await formatsPassedToYtDlp(t, () => appModule.downloadSeparate("https://pin.it/5RNR5E4PX", "480", "mjpeg", jobId)),
-        ["bv*[format_id!*=HEVC][height<=480]/bv*[height<=480]"]
+        [`${shorterSide("bv*[format_id!*=HEVC]", "480")}/${shorterSide("bv*", "480")}`]
     );
     assert.deepEqual(await formatsPassedToYtDlp(t, () => appModule.downloadSeparate(pinUrl, "best", "mkv", jobId)), ["bv*"]);
     assert.deepEqual(await formatsPassedToYtDlp(t, () => appModule.downloadSeparate(youtubeUrl, "best", "mp4", jobId)), ["bv*[ext=mp4][vcodec^=avc1]/bv*"]);

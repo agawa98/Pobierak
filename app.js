@@ -988,6 +988,14 @@ function deleteTempFile(filePath) {
     }
 }
 
+// UL-8d: rozdzielczosc ogranicza krotszy bok filmu. yt-dlp nie umie porownac szerokosci z wysokoscia w jednym filtrze,
+// wiec kazdy wariant jest podwojony: najpierw "szerokosc <= R i wysokosc > R" (pasuje tylko do filmu pionowego,
+// np. 720x1280 przy 720p), potem dotychczasowe "wysokosc <= R". Film poziomy nigdy nie spelni pierwszego
+// (szerokosc >= wysokosc > R), wiec dla niego wynik jest taki sam jak przed zmiana. suffix to np. "+ba..."
+function limitShorterSide(prefix, resolution, suffix = "") {
+    return `${prefix}[width<=${resolution}][height>${resolution}]${suffix}/${prefix}[height<=${resolution}]${suffix}`;
+}
+
 //funkcja budujaca arugment do ffmpega zawieraajaaca resolution
 function buildVideoFormat(resolution, format) {                             //pobieranie filmu z dzwiekiem (razem)
     if (format === "mp4" || format === "mpeg" || format === "mjpeg") {
@@ -996,14 +1004,19 @@ function buildVideoFormat(resolution, format) {                             //po
             return "bv*[ext=mp4][vcodec^=avc1]+ba[ext=m4a][acodec^=mp4a]/b[ext=mp4]/bv*+ba/b";
         }
 
-        return `bv*[ext=mp4][vcodec^=avc1][height<=${resolution}]+ba[ext=m4a][acodec^=mp4a]/b[ext=mp4][height<=${resolution}]/bv*[height<=${resolution}]+ba/b[height<=${resolution}]`;
+        return [
+            limitShorterSide("bv*[ext=mp4][vcodec^=avc1]", resolution, "+ba[ext=m4a][acodec^=mp4a]"),
+            limitShorterSide("b[ext=mp4]", resolution),
+            limitShorterSide("bv*", resolution, "+ba"),
+            limitShorterSide("b", resolution),
+        ].join("/");
     }
 
     if (resolution === "best") {
         return "bv*+ba/b";
     }   //best video(bv) + best audio(ba)
 
-    return `bv*[height<=${resolution}]+ba/b[height<=${resolution}]`;
+    return `${limitShorterSide("bv*", resolution, "+ba")}/${limitShorterSide("b", resolution)}`;
 }
 
 // czy link prowadzi do Pinteresta (pinterest.<koncowka> z poddomena albo bez, oraz krotki pin.it). uzywane tylko do wyboru formatu
@@ -1029,7 +1042,7 @@ function buildVideoOnlyFormat(resolution, format, url = "") {
             return "bv*[format_id!*=HEVC]/bv*";
         }
 
-        return `bv*[format_id!*=HEVC][height<=${resolution}]/bv*[height<=${resolution}]`;
+        return `${limitShorterSide("bv*[format_id!*=HEVC]", resolution)}/${limitShorterSide("bv*", resolution)}`;
     }
 
     if (format === "mp4" || format === "mpeg" || format === "mjpeg") {
@@ -1038,14 +1051,14 @@ function buildVideoOnlyFormat(resolution, format, url = "") {
             return "bv*[ext=mp4][vcodec^=avc1]/bv*";
         }
 
-        return `bv*[ext=mp4][vcodec^=avc1][height<=${resolution}]/bv*[height<=${resolution}]`;
+        return `${limitShorterSide("bv*[ext=mp4][vcodec^=avc1]", resolution)}/${limitShorterSide("bv*", resolution)}`;
     }
 
     if (resolution === "best") {                                    //pobieranie filmu i audio osobno
         return "bv*";
     }       //best video ONLY
 
-    return `bv*[height<=${resolution}]`;
+    return limitShorterSide("bv*", resolution);
 }
 
 // yt-dlp nie umie sensownie mergowac prosto do mpeg/mjpeg, wiec najpierw pobieramy do bezpiecznego mp4, a potem ffmpeg konwertuje do mpeg/mjpeg

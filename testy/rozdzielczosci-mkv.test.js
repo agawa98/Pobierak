@@ -42,6 +42,12 @@ function loadApp() {
 const { appModule, calls } = loadApp();
 const { buildVideoFormat, buildVideoOnlyFormat } = appModule;
 
+// UL-8d: oczekiwany wariant z limitem krotszego boku - najpierw film pionowy (szerokosc <= R, wysokosc > R),
+// potem dotychczasowy limit wysokosci (film poziomy)
+function shorterSide(prefix, resolution, suffix = "") {
+    return `${prefix}[width<=${resolution}][height>${resolution}]${suffix}/${prefix}[height<=${resolution}]${suffix}`;
+}
+
 const mkvOnlyMessage = "Ta rozdzielczość jest dostępna tylko w formacie MKV.";
 const testUrl = "https://www.youtube.com/watch?v=jNQXAC9IVRw";
 const noEffects = { bitcrush: 0, sampleRate: "default", channels: "stereo", normalize: false, trimStart: "", trimEnd: "" };
@@ -116,8 +122,8 @@ for (const type of ["video", "separate"]) {
             assert.notEqual(json.message, mkvOnlyMessage);
 
             const expected = type === "video"
-                ? `bv*[height<=${resolution}]+ba/b[height<=${resolution}]`
-                : `bv*[height<=${resolution}]`;
+                ? `${shorterSide("bv*", resolution, "+ba")}/${shorterSide("b", resolution)}`
+                : shorterSide("bv*", resolution);
 
             assert.equal(ytDlpFormats()[0], expected);
         });
@@ -151,9 +157,9 @@ test("UL-1: nieznana rozdzielczosc dalej daje stary komunikat, nie komunikat o M
 
 // ---------- argumenty yt-dlp dla nowych wartosci ----------
 
-test("UL-1: buildVideoFormat i buildVideoOnlyFormat dla mkv ograniczaja wysokosc do 1440 i 2160", () => {
-    assert.equal(buildVideoFormat("1440", "mkv"), "bv*[height<=1440]+ba/b[height<=1440]");
-    assert.equal(buildVideoFormat("2160", "mkv"), "bv*[height<=2160]+ba/b[height<=2160]");
-    assert.equal(buildVideoOnlyFormat("1440", "mkv"), "bv*[height<=1440]");
-    assert.equal(buildVideoOnlyFormat("2160", "mkv"), "bv*[height<=2160]");
+test("UL-1: buildVideoFormat i buildVideoOnlyFormat dla mkv ograniczaja (od UL-8d krotszy bok) do 1440 i 2160", () => {
+    assert.equal(buildVideoFormat("1440", "mkv"), `${shorterSide("bv*", "1440", "+ba")}/${shorterSide("b", "1440")}`);
+    assert.equal(buildVideoFormat("2160", "mkv"), `${shorterSide("bv*", "2160", "+ba")}/${shorterSide("b", "2160")}`);
+    assert.equal(buildVideoOnlyFormat("1440", "mkv"), shorterSide("bv*", "1440"));
+    assert.equal(buildVideoOnlyFormat("2160", "mkv"), shorterSide("bv*", "2160"));
 });
