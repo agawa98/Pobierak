@@ -943,3 +943,7 @@ button[type="submit"]:disabled {
     transform: rotate(360deg);
   }
 }
+
+button, input, select {
+  font-family: inherit;
+}
