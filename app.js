@@ -700,10 +700,6 @@ function parseTimeToSeconds(value) {
         return NaN;
     }
 
-    if (parts.some(part => part < 0)) {
-        return NaN;
-    }
-
     if (parts.length === 1) {
         return parts[0];
     }
@@ -1786,16 +1782,6 @@ function validateRequest(req, res) {
         return null;
     }
 
-    if (trimStartSeconds !== null && trimStartSeconds < 0) {
-        badRequest(res, "Początek przycinania nie może być mniejszy od zera.");
-        return null;
-    }
-
-    if (trimEndSeconds !== null && trimEndSeconds < 0) {
-        badRequest(res, "Koniec przycinania nie może być mniejszy od zera.");
-        return null;
-    }
-
     if (trimStartSeconds !== null && trimEndSeconds !== null && trimStartSeconds >= trimEndSeconds) {
         badRequest(res, "Początek przycinania musi być mniejszy niż koniec.");
         return null;
@@ -1824,8 +1810,6 @@ function validateRequest(req, res) {
 
 // tutaj mamy endpoint na ktorym wszystko sie dzieje
 app.post("/api/download", onlyLocalRequests, async (req, res) => {
-    console.log(req.body);
-
     const data = validateRequest(req, res);
 
     if (!data) {
@@ -1889,8 +1873,7 @@ app.post("/api/download", onlyLocalRequests, async (req, res) => {
             return res.json({
                 success: true,
                 message: "Audio gotowe do pobrania.",
-                files,
-                receivedData: data
+                files
             });
         }
 
@@ -1919,8 +1902,7 @@ app.post("/api/download", onlyLocalRequests, async (req, res) => {
             return res.json({
                 success: true,
                 message: "Video gotowe do pobrania.",
-                files,
-                receivedData: data
+                files
             });
         }
 
@@ -1960,8 +1942,7 @@ app.post("/api/download", onlyLocalRequests, async (req, res) => {
             return res.json({
                 success: true,
                 message: "Video i audio osobno gotowe do pobrania.",
-                files,
-                receivedData: data
+                files
             });
         }
 

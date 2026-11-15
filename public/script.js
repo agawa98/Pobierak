@@ -464,18 +464,6 @@ function validateTrim() {
     return false;
   }
 
-  if (start !== null && start < 0) {
-    trimValidation.textContent = "Początek nie może być mniejszy od zera.";
-    trimValidation.classList.add("is-error");
-    return false;
-  }
-
-  if (end !== null && end < 0) {
-    trimValidation.textContent = "Koniec nie może być mniejszy od zera.";
-    trimValidation.classList.add("is-error");
-    return false;
-  }
-
   if (start !== null && end !== null && start >= end) {
     trimValidation.textContent = "Początek musi być mniejszy niż koniec.";
     trimValidation.classList.add("is-error");
@@ -648,8 +636,6 @@ async function handleDownloadSubmit(event) {
         }
       });
     }
-
-    addLog("data", JSON.stringify(result.receivedData));
 
     // lista zapisanych plików dla handleFormSubmit (przycisk "Pokaż w folderze", zadanie UL-2d)
     return result.files;

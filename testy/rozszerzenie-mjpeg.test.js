@@ -235,7 +235,7 @@ test("B10: POST /api/download film mjpeg - adres w odpowiedzi konczy sie na .avi
     assert.equal(json.files.length, 1);
     assert.match(json.files[0].name, /^tytul \[[0-9a-f]{8}\]\.avi$/);
     assert.equal(json.files[0].path, path.join(folderDocelowy, json.files[0].name));
-    assert.equal(json.receivedData.format, "mjpeg");
+    assert.equal("receivedData" in json, false);
 
     const ytDlpCalls = calls.filter(call => call.command === appModule.ytDlpPath);
     const ffmpegCalls = calls.filter(call => call.command === appModule.ffmpegPath);

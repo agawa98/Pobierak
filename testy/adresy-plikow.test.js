@@ -125,7 +125,7 @@ test("B2: POST /api/download audio - files ma jeden element z nazwa i pelna scie
     assert.equal("downloadUrl" in json, false);
     assert.equal("downloadUrls" in json, false);
     assert.equal(json.message, "Audio gotowe do pobrania.");
-    assert.equal(json.receivedData.type, "audio");
+    assert.equal("receivedData" in json, false);
 });
 
 test("B2: POST /api/download film - files ma jeden element z nazwa i pelna sciezka, bez adresow", async (t) => {
