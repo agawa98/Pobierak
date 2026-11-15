@@ -359,6 +359,109 @@ app.post("/api/folder/wybierz", async (req, res) => {
     res.json({ success: outcome.result === "selected", ...outcome });
 });
 
+// --- pokaz w folderze (zadanie UL-2d) ---
+
+// pelne sciezki plikow, ktore serwer sam zapisal w folderach docelowych od ostatniego startu.
+// /api/folder/pokaz otwiera tylko pliki z tej listy - zadna inna sciezka z zadania nie trafi do Eksploratora
+const savedFiles = new Set();
+
+// zapamietuje pliki z udanego pobrania (lista { name, path } z odpowiedzi /api/download)
+function rememberSavedFiles(files) {
+    for (const file of files) {
+        if (file && typeof file.path === "string") {
+            savedFiles.add(path.resolve(file.path));
+        }
+    }
+}
+
+// czy serwer zapisal ten plik w tym uruchomieniu
+function isSavedFile(filePath) {
+    return typeof filePath === "string" && filePath !== "" && path.isAbsolute(filePath) && savedFiles.has(path.resolve(filePath));
+}
+
+// polecenie, ktore otwiera folder z pobranym plikiem. Windows i macOS zaznaczaja plik, Linux otwiera sam folder.
+// Windows: explorer czyta /select,"<plik>" po swojemu, wiec argument idzie dokladnie w tej postaci (windowsVerbatimArguments).
+// cudzyslowu nie ma w nazwach plikow na Windowsie, wiec sciezka nie moze z niego wyjsc
+function buildShowInFolderCommand(filePath, platform = process.platform) {
+    if (platform === "win32") {
+        return { command: "explorer.exe", args: [`/select,"${filePath}"`], options: { windowsVerbatimArguments: true } };
+    }
+
+    if (platform === "darwin") {
+        return { command: "open", args: ["-R", filePath], options: {} };
+    }
+
+    return { command: "xdg-open", args: [path.posix.dirname(filePath)], options: {} };
+}
+
+// uruchamia polecenie z buildShowInFolderCommand i nie czeka na jego koniec (Eksplorator zyje dalej sam).
+// zwraca { ok: true } po starcie procesu albo { ok: false, error }, gdy programu nie da sie uruchomic.
+// kodu wyjscia nie sprawdzamy: explorer.exe konczy sie kodem 1 takze wtedy, gdy okno sie otworzylo.
+// options sluzy testom (system, atrapa spawn)
+function showInFolder(filePath, options = {}) {
+    const platform = options.platform || process.platform;
+    const spawnImpl = options.spawnImpl || spawn;
+    const { command, args, options: extra } = buildShowInFolderCommand(filePath, platform);
+
+    return new Promise((resolve) => {
+        let child;
+
+        try {
+            // windowsHide: false - inaczej Windows moglby otworzyc okno Eksploratora ukryte
+            child = spawnImpl(command, args, { detached: true, stdio: "ignore", windowsHide: false, ...extra });
+        } catch (error) {
+            resolve({ ok: false, error });
+            return;
+        }
+
+        child.once("spawn", () => {
+            if (typeof child.unref === "function") {
+                child.unref();
+            }
+
+            resolve({ ok: true });
+        });
+
+        child.once("error", (error) => resolve({ ok: false, error }));
+    });
+}
+
+// ustawienia showInFolder dla adresu /api/folder/pokaz. puste = prawdziwy system; testy podstawiaja tu atrape spawn
+const showInFolderOptions = {};
+
+// otwiera folder z plikiem pobranym w tym uruchomieniu. cialo: { path: "<pelna sciezka pliku z odpowiedzi /api/download>" }.
+// 400 - brak sciezki, 403 - plik spoza listy zapisanych, 404 - pliku juz nie ma, 500 - nie da sie uruchomic Eksploratora
+app.post("/api/folder/pokaz", async (req, res) => {
+    const filePath = req.body && req.body.path;
+
+    if (typeof filePath !== "string" || filePath.trim() === "") {
+        return badRequest(res, "Brak ścieżki pliku do pokazania.");
+    }
+
+    if (!isSavedFile(filePath)) {
+        return res.status(403).json({
+            success: false,
+            message: "Pobierak pokazuje w folderze tylko pliki, które sam zapisał od ostatniego uruchomienia."
+        });
+    }
+
+    const resolved = path.resolve(filePath);
+
+    if (!fs.existsSync(resolved)) {
+        return res.status(404).json({ success: false, message: `Plik już nie istnieje: ${resolved}` });
+    }
+
+    const outcome = await showInFolder(resolved, showInFolderOptions);
+
+    if (!outcome.ok) {
+        console.error(outcome.error);
+
+        return res.status(500).json({ success: false, message: "Nie udało się otworzyć folderu z plikiem." });
+    }
+
+    return res.json({ success: true });
+});
+
 // zadania w toku: jobId -> obiekt zadania. endpoint /api/download dodaje wpis na starcie i usuwa go w finally.
 // obiekt zadania (a nie samo jobId), zeby mozna bylo przy nim trzymac np. aktualny proces i znacznik anulowania
 const activeJobs = new Map();
@@ -1670,6 +1773,7 @@ app.post("/api/download", onlyLocalRequests, async (req, res) => {
             throwIfCancelled(job);      // anulowane zadanie nie wysyla odpowiedzi
 
             finished = true;
+            rememberSavedFiles(files);      // tylko te pliki da sie potem pokazac w folderze (/api/folder/pokaz)
 
             return res.json({
                 success: true,
@@ -1699,6 +1803,7 @@ app.post("/api/download", onlyLocalRequests, async (req, res) => {
             throwIfCancelled(job);      // anulowane zadanie nie wysyla odpowiedzi
 
             finished = true;
+            rememberSavedFiles(files);      // tylko te pliki da sie potem pokazac w folderze (/api/folder/pokaz)
 
             return res.json({
                 success: true,
@@ -1739,6 +1844,7 @@ app.post("/api/download", onlyLocalRequests, async (req, res) => {
             throwIfCancelled(job);      // anulowane zadanie nie wysyla odpowiedzi
 
             finished = true;
+            rememberSavedFiles(files);      // tylko te pliki da sie potem pokazac w folderze (/api/folder/pokaz)
 
             return res.json({
                 success: true,
@@ -1977,5 +2083,11 @@ module.exports = {
     runFolderPickerCommand,
     pickFolder,
     folderPickerOptions,
-    folderPickerUnavailableMessage
+    folderPickerUnavailableMessage,
+    savedFiles,
+    rememberSavedFiles,
+    isSavedFile,
+    buildShowInFolderCommand,
+    showInFolder,
+    showInFolderOptions
 };

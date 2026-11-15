@@ -614,6 +614,9 @@ async function handleDownloadSubmit(event) {
 
     addLog("data", JSON.stringify(result.receivedData));
 
+    // lista zapisanych plików dla handleFormSubmit (przycisk "Pokaż w folderze", zadanie UL-2d)
+    return result.files;
+
   } finally {
     isDownloading = false;
     downloadButton.disabled = false;
@@ -795,16 +798,112 @@ function toggleExperimentalPanel() {
   }
 }
 
+// ---------- "Pokaż w folderze" (zadanie UL-2d) ----------
+
+const showInFolderText = "Pokaż w folderze";
+
+// pełna ścieżka pliku, który pokaże kliknięcie przycisku; "" = przycisk jest zwykłym "Pobierz"
+let fileToShow = "";
+
+// plik do pokazania z odpowiedzi serwera: pierwszy z pełną ścieżką. w trybie "osobno" serwer podaje najpierw wideo, potem dźwięk
+function pickFileToShow(files) {
+  if (!Array.isArray(files)) {
+    return "";
+  }
+
+  const file = files.find(item => item && typeof item.path === "string" && item.path !== "");
+
+  return file ? file.path : "";
+}
+
+// zamienia przycisk w "Pokaż w folderze" (z podaną ścieżką) albo z powrotem w "Pobierz" (pusta ścieżka)
+function setFileToShow(filePath) {
+  fileToShow = filePath;
+  buttonText.textContent = filePath ? showInFolderText : "Pobierz";
+  downloadButton.classList.toggle("is-show-folder", Boolean(filePath));
+}
+
+// przycisk wraca do "Pobierz" (wpisanie czegoś w pole linku, kliknięcie "Pokaż w folderze")
+function resetFileToShow() {
+  if (fileToShow) {
+    setFileToShow("");
+  }
+}
+
+// "Pokaż w folderze": serwer otwiera folder docelowy z zaznaczonym plikiem (POST /api/folder/pokaz).
+// przycisk od razu wraca do "Pobierz", nie czekając na odpowiedź
+async function handleShowInFolder() {
+  const filePath = fileToShow;
+
+  setFileToShow("");
+  addLog("ui", `Pokazuję w folderze: ${filePath}`);
+
+  let response;
+
+  try {
+    response = await fetch("/api/folder/pokaz", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ path: filePath })
+    });
+  } catch (error) {
+    console.error(error);
+    addLog("error", "Nie udało się połączyć z backendem.");
+    showStatusError("Nie udało się połączyć z backendem.");
+    return;
+  }
+
+  if (response.ok) {
+    return;
+  }
+
+  let result = null;
+
+  try {
+    result = await response.json();
+  } catch (error) {
+    console.error(error);
+  }
+
+  const message = result !== null && typeof result === "object" && result.message
+    ? String(result.message)
+    : `Nie udało się otworzyć folderu (HTTP ${response.status}).`;
+
+  addLog("error", message);
+  showStatusError(message);
+}
+
+// wysłanie formularza: przycisk "Pokaż w folderze" pokazuje plik, zwykły "Pobierz" pobiera.
+// po udanym pobraniu przycisk zamienia się w "Pokaż w folderze" - chyba że w trakcie zmienił się link
+async function handleFormSubmit(event) {
+  if (fileToShow) {
+    event.preventDefault();
+    await handleShowInFolder();
+    return;
+  }
+
+  const urlBefore = urlInput.value;
+  const files = await handleDownloadSubmit(event);
+  const filePath = pickFileToShow(files);
+
+  if (filePath && urlInput.value === urlBefore) {
+    setFileToShow(filePath);
+  }
+}
+
 typeInputs.forEach((input) => {
   input.addEventListener("change", updateOptions);
 });
 
 urlInput.addEventListener("input", validateUrl);
+urlInput.addEventListener("input", resetFileToShow);
 trimStartInput.addEventListener("input", validateTrim);
 trimEndInput.addEventListener("input", validateTrim);
 
 experimentalToggle.addEventListener("click", toggleExperimentalPanel);
-downloadForm.addEventListener("submit", handleDownloadSubmit);
+downloadForm.addEventListener("submit", handleFormSubmit);
 
 chooseFolderButton.addEventListener("click", handleChooseFolder);
 folderManualSave.addEventListener("click", handleManualFolderSave);

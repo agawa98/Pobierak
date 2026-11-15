@@ -234,9 +234,9 @@ test("UL-2c: zadanie pobrania niesie pole folder; po sukcesie Gotowe — zapisan
 
         assert.deepEqual(downloads, [], "przegladarka nie moze niczego pobierac");
         assert.equal(await page.$$eval("a", links => links.length), 0, "na stronie nie ma linkow do plikow");
-        // po pobraniu przycisk wraca do Pobierz i jest wlaczony (folder dalej wybrany)
+        // po pobraniu przycisk jest wlaczony (folder dalej wybrany). od UL-2d po sukcesie ma napis "Pokaż w folderze"
         assert.equal(await page.isEnabled("#downloadButton"), true);
-        assert.equal(await page.textContent(".button-text"), "Pobierz");
+        assert.equal(await page.textContent(".button-text"), "Pokaż w folderze");
     });
 });
 

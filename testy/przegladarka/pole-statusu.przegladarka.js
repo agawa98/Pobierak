@@ -462,7 +462,10 @@ test("U1: blad walidacji przycinania jest widoczny w polu statusu; po poprawce i
         assert.equal(success.text.includes("Początek"), false);
         assert.deepEqual(success.paths, [audioFile.path]);
 
-        // pole pokazuje Gotowe ze sciezka; kolejne bledne przyciecie zastepuje to samym bledem
+        // pole pokazuje Gotowe ze sciezka; kolejne bledne przyciecie zastepuje to samym bledem.
+        // od UL-2d po sukcesie przycisk to "Pokaż w folderze" - znak wpisany i skasowany w polu linku przywraca "Pobierz"
+        await page.type("#url", "x");
+        await page.press("#url", "Backspace");
         await page.fill("#trimEnd", "0:30");
         await page.click("#downloadButton");
         await page.waitForFunction(() => document.querySelector("#statusBox").classList.contains("is-error"));
