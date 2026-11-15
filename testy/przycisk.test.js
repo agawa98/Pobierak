@@ -70,7 +70,6 @@ function buildPage({ trimStart = "", trimEnd = "", fetchImpl } = {}) {
         trimValidation,
         trimStartInput: { value: trimStart },
         trimEndInput: { value: trimEnd },
-        videoDurationSeconds: null,
         resolutionSelect: { value: "best" },
         formatSelect: { value: "mp3" },
         document: {

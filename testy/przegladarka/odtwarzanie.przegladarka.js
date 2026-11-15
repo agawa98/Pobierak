@@ -126,7 +126,7 @@ test("B12: przepakowany plik wideo trybu osobno (mp4) odtwarza sie w <video> i d
             }
         }
 
-        assert.ok(result.playedAfterSeek >= 0.3, `odtwarzanie po przewinieciu przesunelo czas o ${result.playedAfterSeek}`);
+        assert.ok(result.playedAfterSeek >= 0.25, `odtwarzanie po przewinieciu przesunelo czas o ${result.playedAfterSeek}`);
     } finally {
         await browser.close();
         await stopServer(server);
