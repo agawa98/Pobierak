@@ -1,6 +1,6 @@
 // Testy zadania B11: przycinanie. Zostal wariant awaryjny z zadania: yt-dlp pobiera caly film, tnie ffmpeg
 // (-ss/-to przed -i, obraz kodowany libx264 veryfast crf 20 yuv420p, dzwiek aac 192k), bo pobieranie samego wycinka
-// (--download-sections) cielo audio niedokladnie - opis w DOKUMENTACJA.md.
+// (--download-sections) cielo audio niedokladnie (krotki opis w DOKUMENTACJA.md, sekcja o panelu EXPERIMENTAL).
 // Nic nie pobieraja z internetu i nie uruchamiaja yt-dlp. spawn jest podmieniony na atrape; pliki robocze leza w os.tmpdir().
 // Ostatnia czesc uruchamia prawdziwy ffmpeg na probce z generatora, ktora ma JEDNA klatke kluczowa (na poczatku):
 // ciecie przez kopiowanie strumienia musi wtedy zabrac obraz od zera. W mkv widac to po klatkach z dekodowania.
